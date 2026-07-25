@@ -2,7 +2,12 @@
 Residual DNA qPCR Analysis Python Notebooks
 
 
-resiDNA_workflows/
+## Project Organization
+
+This repository is organized to keep qPCR analysis workflows, datasets, scripts, and results easy to track and reproduce.
+
+```text
+qpcr-data-analysis/
 │
 ├── notebooks/
 │   ├── 01_data_import.ipynb
@@ -25,3 +30,4 @@ resiDNA_workflows/
 ├── figures/
 ├── results/
 └── README.md
+```
