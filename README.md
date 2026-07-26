@@ -31,3 +31,44 @@ qpcr-data-analysis/
 ├── results/
 └── README.md
 ```
+
+## Application Architect (In Progress)
+
+```text
+                         USER
+                          |
+                          |
+                    FRONTEND (Web App)
+                          |
+        ---------------------------------------
+        |                 |                   |
+   Upload Page     Results Dashboard     Analytics
+        |                 |                   |
+        ---------------------------------------
+                          |
+                    API Communication
+                          |
+                          |
+                    BACKEND SERVER
+                          |
+        ---------------------------------------
+        |                 |                   |
+ File Handler       Analysis Engine       Database
+        |                 |                   |
+        |                 |                   |
+ QuantStudio       QC Rules Engine      Run History
+ Parser            Suitability Check     Results Storage
+        |
+        |
+ Data Classification
+        |
+ -----------------------------
+ |            |              |
+ STD       Controls       Samples
+ |            |              |
+ -----------------------------
+        |
+        |
+ Report Generator
+
+```
