@@ -69,12 +69,12 @@ Order of Web Application Development Phases
 >
 >Phase I - Colab Scientific Prototype (.ipynb)
 >>Prove that the qPCR analysis logic works correctly.
->1. [x] [Load QuantStudio file](Notebooks/01_Phase%20I.ipynb#L92)
->2. [x] [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1179)
->3. [x] [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1857)
->4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2329)
->5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L3053)
->6. [ ] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L3609) — not started
+>1. [x] [Load QuantStudio file](Notebooks/01_Phase%20I.ipynb#L84)
+>2. [x] [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1116)
+>3. [x] [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1794)
+>4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2266)
+>5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2736)
+>6. [ ] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L3024) — not started
 >
 > Phase II - Convert Prototype into a Local Application (http://localhost:8501)
 >>Create a simple website you run on your own computer using Local Streamlit App.
@@ -103,31 +103,31 @@ Line numbers point into the raw `.ipynb` JSON (open the file with a text editor,
 
 | Section | Line | What it does |
 |---|---|---|
-| [Load QuantStudio 5 Dataset](Notebooks/01_Phase%20I.ipynb#L92) | 92 | Colab/local dual-path setup ([`IN_COLAB`](Notebooks/01_Phase%20I.ipynb#L55) detection), reads `Data/experiment_001.xlsx` |
-| [Table Styling Helper](Notebooks/01_Phase%20I.ipynb#L286) | 286 | [`style_table()`](Notebooks/01_Phase%20I.ipynb#L306) — shared formatting for every table in the notebook (light-mode-forced colors, optional row highlighting) |
-| [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1179) | 1179 | Renames/standardizes columns, converts dtypes, drops empty rows, handles `Undetermined` Ct |
-| [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1857) | 1857 | [`classify_sample()`](Notebooks/01_Phase%20I.ipynb#L2100) splits wells into Reference Standard / Control (NTC, NEC, ERC, HPC, MPC, LPC) / Sample |
-| [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2329) | 2329 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ (see [Acceptance Criteria](#acceptance-criteria) below) |
-| [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L3053) | 3053 | Per-sample QC (quantity %CV, dilutional linearity) and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L3411) table |
-| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L3609) | 3609 | Not started |
+| [Load QuantStudio 5 Dataset](Notebooks/01_Phase%20I.ipynb#L84) | 84 | Colab/local dual-path setup ([`IN_COLAB`](Notebooks/01_Phase%20I.ipynb#L47) detection), reads `Data/experiment_001.xlsx` |
+| [Table Styling Helper](Notebooks/01_Phase%20I.ipynb#L278) | 278 | [`style_table()`](Notebooks/01_Phase%20I.ipynb#L295) and [`style_criteria_summary()`](Notebooks/01_Phase%20I.ipynb#L295) — shared formatting for every table in the notebook (2-decimal default, light-mode-forced colors, optional row highlighting) |
+| [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1116) | 1116 | Renames/standardizes columns, converts dtypes, drops empty rows, handles `Undetermined` Ct |
+| [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1794) | 1794 | [`classify_sample()`](Notebooks/01_Phase%20I.ipynb#L2037) splits wells into Reference Standard / Control (NTC, NEC, ERC, HPC, MPC, LPC) / Sample |
+| [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2266) | 2266 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ; criteria editable via Colab form fields; ends with a PASS/FAIL banner and a full criteria summary table (see [Acceptance Criteria](#acceptance-criteria) below) |
+| [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2736) | 2736 | Per-sample QC (quantity %CV, dilutional linearity), the [Sample Name Mapping](Notebooks/01_Phase%20I.ipynb#L2976) dict, and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L2970) tables |
+| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L3024) | 3024 | Not started |
 
 ## Acceptance Criteria
 
-Implemented in the System Suitability Engine and Sample Result Processing sections above.
+Implemented in the System Suitability Engine and Sample Result Processing sections above. System Suitability constants are exposed as Colab form fields (`#@param`) so they can be edited without touching code; Sample Suitability constants are still plain Python (see [Backlog](#backlog--recommended-cleanup)).
 
 **STD (Standard Curve)**
 | Check | Formula | Pass |
 |---|---|---|
-| R² | instrument-computed | > 0.99 |
+| R² | instrument-computed | ≥ 0.99 |
 | Ct %CV (triplicate) | `(Ct_SD / Ct_Mean) × 100` | ≤ 20% |
-| Back-calculation bias | `\|(Back-Calc Qty − Nominal Qty) / Nominal Qty\| × 100` | < 25% |
+| Back-calculation bias | `\|(Back-Calc Qty − Nominal Qty) / Nominal Qty\| × 100` | ≤ 25% |
 | Amplification efficiency | `(10^(−1/Slope) − 1) × 100` | 90%–110% |
 
 **ERC & PC (Controls)**
 | Check | Formula | Pass |
 |---|---|---|
-| Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | < 20% |
-| PC %Recovery | `(Dilution-Adjusted Qty / Reference-Adjusted Qty) × 100` | 80%–120% |
+| Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 20% |
+| PC %Recovery | `(Dilution-Adjusted Qty / Reference-Adjusted Qty) × 100` | 80%–125% |
 | ERC %Recovery | same formula | 50%–150% |
 
 **NTC / NEC**
@@ -140,43 +140,56 @@ Implemented in the System Suitability Engine and Sample Result Processing sectio
          = y-Intercept − 10 × Std_error   (shortcut, valid when Slope < 0)
   ```
 
+The System Suitability section ends with a color-coded PASS/FAIL banner and a full criteria summary table (`style_criteria_summary()`) consolidating every STD/ERC/PC/NTC/NEC check above into one Group/Item/Criteria/Value/Status table, Fail rows highlighted red.
+
 **Sample Suitability**
 | Check | Formula | Pass |
 |---|---|---|
-| Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | < 20% |
-| Dilutional linearity (D1–D4, spiked) | `\|100 − %Recovery\|` | < 20% |
+| Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 25% |
+| Dilutional linearity | `%Bias = (x₁ − x₂) / x₂ × 100`, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV, and `x₁` is each dilution's `Dilution Adjusted` quantity | `\|%Bias\|` ≤ 25% |
+
+Since spiked series are no longer collected, dilutional linearity no longer compares to a spiked 100% recovery target. Instead, for each sample, the dilution with the lowest combined Ct %CV + Quantity %CV (its most precise triplicate) is taken as an internal reference, and every dilution's `Dilution Adjusted` quantity is compared against it. `% Bias` is reported signed (can be positive or negative); the pass/fail gate uses its absolute value.
+
+The Sample Suitability section similarly ends with a full criteria summary table; a separate PASS/FAIL banner was dropped as redundant since the table already states each item's status.
 
 **Final Sample Results**
 
-The table lists the **entire unspiked dilution series (D1–D4)** for traceability — the spiked `" S"` series is excluded for now. Each row carries its own verdict, and only suitability-passing dilutions are tallied as reportable (`reportable_results`):
+The workflow now assumes **multiple samples**, each with its own unspiked dilution series (e.g. `S1 D1–D3`, `S2 D1–D3`) and no spiked series. Two tables are produced:
 
-| Column | Meaning |
-|---|---|
-| `Quantity %CV` | Triplicate %CV for that dilution |
-| `Suitability` | `Pass` (%CV ≤ 20), `Fail` (%CV > 20), or `N/A` (no evaluable triplicate — below LOQ / no amplification) |
-| `Total DNA (ng/mL)` | Reported for every row |
-| `Total DNA per Protein (ng/mg)` | Reported wherever a protein concentration is available |
-| `Status` | `Below` / `Above` the 15 ng/mg limit for passing rows; `Not Reported` for `Fail` or `N/A` rows |
+1. *Final Sample Results by Dilution* — every unspiked dilution, one row each, for traceability:
 
-Rows with `Status = "Below"` (i.e. suitability-passing **and** under 15 ng/mg) are highlighted light green.
+   | Column | Meaning |
+   |---|---|
+   | `Base Sample` | Sample ID with the dilution suffix stripped (e.g. `S1 D2` → `S1`) |
+   | `Sample Name` | Looked up from the editable `sample_display_names` mapping (see below) |
+   | `Quantity %CV`, `Quantity %CV Suitability` | Triplicate %CV for that dilution, and its own `Pass`/`Fail`/`N/A` verdict |
+   | `Linearity %Bias`, `Linearity Suitability` | %Bias vs. the sample's reference dilution, and its own `Pass`/`Fail`/`N/A` verdict |
+   | `Suitability` | Combined verdict — `Pass` only if **both** Quantity %CV and Linearity pass; `Fail` if either fails; `N/A` if neither fails but one is unevaluable |
+   | `Total DNA (ng/mL)`, `Total DNA per Protein (ng/mg)` | Reported for every row where available |
+
+2. *Final Sample Results — Averaged per Sample* — for each `Base Sample`, `Total DNA (ng/mL)` and `Total DNA per Protein (ng/mg)` are averaged across only that sample's suitability-**passing** dilutions, producing one row per sample. `Dilutions Averaged` records which dilutions (and how many) went into the average, for traceability. Samples with zero passing dilutions are excluded from this table and listed separately by the cell's `not_reported` print output. Rows with `Status = "Below"` (averaged value under the 15 ng/mg limit) are highlighted light green.
+
+Both Final Sample Results tables render at **4-decimal precision**; every other table in the notebook defaults to 2 decimals (see `style_table()`).
+
+**Sample Name Mapping**
+
+A `sample_display_names` dict, auto-populated with every detected `Base Sample` ID (e.g. `"S1"`, `"S2"`) mapped to an empty string, sits just above the Final Sample Results tables — edit the values directly (`sample_display_names["S1"] = "Patient 001"`) to attach real sample names; both result tables pick it up via a `Sample Name` column.
 
 ## Backlog — Recommended Cleanup
 
 Reviewed but **not yet implemented**. Roughly highest-value first.
 
 **Correctness**
-- [ ] `classify_sample()` matches on sample-name prefixes, so a real sample named e.g. `NECTIN-1` would be misclassified as an `NEC` control. Match on a delimiter (`NEC - `, `NEC_`) or an explicit name map instead.
-- [ ] `drop_duplicates(subset="sample_name")` in Final Sample Results silently keeps the first well and assumes all three replicates share identical mean/`total_dna_per_ml` values. Aggregate explicitly (e.g. `.groupby().first()` with a guard) so a divergent replicate cannot be dropped unnoticed.
-- [ ] Dilutional linearity currently evaluates each spiked dilution against 100% recovery independently — it does not test linearity *across* the D1→D4 series. Consider adding a regression of observed vs. expected across dilutions, or bias vs. the series mean, if the SOP requires it.
-- [ ] `%CV` and `%Recovery` are read straight from the instrument export rather than recomputed from replicates. Recomputing (and asserting agreement) would catch a malformed or hand-edited export.
-- [ ] NEC pass rule uses `Ct >= loq_ct`; confirm this is the intended direction for a *No Extraction Control* (higher Ct = less DNA) and that borderline equality should pass.
+
+- [x] ~~Dilutional linearity read `percent_recovery`, only populated for spiked wells~~ — replaced with a reference-dilution approach: each sample's lowest-combined-CV dilution is used as an internal reference, and every dilution's `Dilution Adjusted` quantity is compared against it. No longer depends on spiked series.
+- [x] ~~NEC pass rule direction unconfirmed~~ — confirmed: `Ct >= loq_ct` is the intended direction for a *No Extraction Control* (higher Ct = less DNA), and borderline equality passes.
 - [ ] `klib.data_cleaning()` drops single-valued columns, which silently removed `slope`, `y_intercept`, and `r2` from `df`. The curve stats survive only because they are re-read into `regression_table` — worth an explicit comment or a guard so a future refactor doesn't break it.
 
 **Clarity**
-- [ ] Acceptance-criteria constants are split across two cells (System vs. Sample). Consolidate into one criteria block — this is also the natural seam for the Phase III criteria-settings page.
+- [ ] Acceptance-criteria constants are still split across two cells (System, now Colab-form-editable, vs. Sample, still plain constants). Consolidate into one criteria block — this is also the natural seam for the Phase III criteria-settings page.
 - [ ] `SAMPLE_DNA_PER_PROTEIN_LIMIT` is defined inside the Final Sample Results cell rather than with the other criteria constants.
 - [ ] Section headings mix `##`/`###`/`####` inconsistently (e.g. `#### Table Styling Helper` sits between `##` sections). Normalize the hierarchy.
-- [ ] Boolean `Pass` columns render as `True`/`False`; `Pass`/`Fail` strings would read better in a formal report and would match the new `Suitability` column.
+- [x] ~~Boolean `Pass` columns render as `True`/`False`~~ — the System/Sample Suitability criteria summary tables now render `Pass`/`Fail`/`N/A` strings. The underlying per-check detail tables (`std_suitability`, `control_suitability`, `sample_cv`, `linearity_df`) still carry boolean `...Pass` columns, so this is only partially done.
 - [ ] The trailing empty `##` markdown cell at the end of the notebook should be removed.
 - [ ] Add units to the STD/control suitability tables the way the final results table does.
 
