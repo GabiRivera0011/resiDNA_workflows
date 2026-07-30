@@ -71,10 +71,10 @@ Order of Web Application Development Phases
 >>Prove that the qPCR analysis logic works correctly.
 >1. [x] [Load QuantStudio file](Notebooks/01_Phase%20I.ipynb#L84)
 >2. [x] [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1116)
->3. [x] [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1794)
->4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2266)
->5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2736)
->6. [ ] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L3024) — not started
+>3. [x] [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1763)
+>4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244)
+>5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659)
+>6. [ ] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) — not started
 >
 > Phase II - Convert Prototype into a Local Application (http://localhost:8501)
 >>Create a simple website you run on your own computer using Local Streamlit App.
@@ -106,14 +106,15 @@ Line numbers point into the raw `.ipynb` JSON (open the file with a text editor,
 | [Load QuantStudio 5 Dataset](Notebooks/01_Phase%20I.ipynb#L84) | 84 | Colab/local dual-path setup ([`IN_COLAB`](Notebooks/01_Phase%20I.ipynb#L47) detection), reads `Data/experiment_001.xlsx` |
 | [Table Styling Helper](Notebooks/01_Phase%20I.ipynb#L278) | 278 | [`style_table()`](Notebooks/01_Phase%20I.ipynb#L295) and [`style_criteria_summary()`](Notebooks/01_Phase%20I.ipynb#L295) — shared formatting for every table in the notebook (2-decimal default, light-mode-forced colors, optional row highlighting) |
 | [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1116) | 1116 | Renames/standardizes columns, converts dtypes, drops empty rows, handles `Undetermined` Ct |
-| [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1794) | 1794 | [`classify_sample()`](Notebooks/01_Phase%20I.ipynb#L2037) splits wells into Reference Standard / Control (NTC, NEC, ERC, HPC, MPC, LPC) / Sample |
-| [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2266) | 2266 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ; criteria editable via Colab form fields; ends with a PASS/FAIL banner and a full criteria summary table (see [Acceptance Criteria](#acceptance-criteria) below) |
-| [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2736) | 2736 | Per-sample QC (quantity %CV, dilutional linearity), the [Sample Name Mapping](Notebooks/01_Phase%20I.ipynb#L2976) dict, and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L2970) tables |
-| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L3024) | 3024 | Not started |
+| [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1763) | 1763 | [`classify_sample()`](Notebooks/01_Phase%20I.ipynb#L2006) splits wells into Reference Standard / Control (NTC, NEC, ERC, HPC, MPC, LPC) / Sample |
+| [Acceptance Criteria](Notebooks/01_Phase%20I.ipynb#L2226) | 2226 | Every System and Sample Suitability threshold, in one Colab-form-editable block (see [Acceptance Criteria](#acceptance-criteria) below) |
+| [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244) | 2244 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ; ends with a PASS/FAIL banner and a full criteria summary table |
+| [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659) | 2659 | Per-sample QC (quantity %CV, dilutional linearity), the [Sample Name Mapping](Notebooks/01_Phase%20I.ipynb#L2873) dict, and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L2867) tables |
+| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) | 2921 | Not started |
 
 ## Acceptance Criteria
 
-Implemented in the System Suitability Engine and Sample Result Processing sections above. System Suitability constants are exposed as Colab form fields (`#@param`) so they can be edited without touching code; Sample Suitability constants are still plain Python (see [Backlog](#backlog--recommended-cleanup)).
+All thresholds — System Suitability and Sample Suitability alike — live in one consolidated cell right after Data Classification, before either engine runs, exposed as Colab form fields (`#@param`) so they're editable without touching code. This is also the natural seam for the Phase III criteria-settings page.
 
 **STD (Standard Curve)**
 | Check | Formula | Pass |
@@ -181,17 +182,12 @@ Reviewed but **not yet implemented**. Roughly highest-value first.
 
 **Correctness**
 
-- [x] ~~Dilutional linearity read `percent_recovery`, only populated for spiked wells~~ — replaced with a reference-dilution approach: each sample's lowest-combined-CV dilution is used as an internal reference, and every dilution's `Dilution Adjusted` quantity is compared against it. No longer depends on spiked series.
-- [x] ~~NEC pass rule direction unconfirmed~~ — confirmed: `Ct >= loq_ct` is the intended direction for a *No Extraction Control* (higher Ct = less DNA), and borderline equality passes.
-- [ ] `klib.data_cleaning()` drops single-valued columns, which silently removed `slope`, `y_intercept`, and `r2` from `df`. The curve stats survive only because they are re-read into `regression_table` — worth an explicit comment or a guard so a future refactor doesn't break it.
 
 **Clarity**
-- [ ] Acceptance-criteria constants are still split across two cells (System, now Colab-form-editable, vs. Sample, still plain constants). Consolidate into one criteria block — this is also the natural seam for the Phase III criteria-settings page.
-- [ ] `SAMPLE_DNA_PER_PROTEIN_LIMIT` is defined inside the Final Sample Results cell rather than with the other criteria constants.
+
 - [ ] Section headings mix `##`/`###`/`####` inconsistently (e.g. `#### Table Styling Helper` sits between `##` sections). Normalize the hierarchy.
-- [x] ~~Boolean `Pass` columns render as `True`/`False`~~ — the System/Sample Suitability criteria summary tables now render `Pass`/`Fail`/`N/A` strings. The underlying per-check detail tables (`std_suitability`, `control_suitability`, `sample_cv`, `linearity_df`) still carry boolean `...Pass` columns, so this is only partially done.
-- [ ] The trailing empty `##` markdown cell at the end of the notebook should be removed.
-- [ ] Add units to the STD/control suitability tables the way the final results table does.
+
+
 
 **Cleanup**
 - [ ] Commented-out `to_csv` / `processed_path` blocks are scattered through the parser cells — either wire up a real export step or delete them.
