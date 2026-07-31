@@ -147,7 +147,7 @@ The System Suitability section ends with a color-coded PASS/FAIL banner and a fu
 | Check | Formula | Pass |
 |---|---|---|
 | Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 25% |
-| Dilutional linearity | `%Bias = (x₁ − x₂) / x₂ × 100`, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV, and `x₁` is each dilution's `Dilution Adjusted` quantity | `\|%Bias\|` ≤ 25% |
+| Dilutional linearity | `%Bias = (x₁ − x₂) / x₂ × 100`, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV, and `x₁` is each dilution's `Dilution Adjusted` quantity | `\|%Bias\|` ≤ 20% |
 
 Since spiked series are no longer collected, dilutional linearity no longer compares to a spiked 100% recovery target. Instead, for each sample, the dilution with the lowest combined Ct %CV + Quantity %CV (its most precise triplicate) is taken as an internal reference, and every dilution's `Dilution Adjusted` quantity is compared against it. `% Bias` is reported signed (can be positive or negative); the pass/fail gate uses its absolute value.
 
