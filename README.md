@@ -74,7 +74,7 @@ Order of Web Application Development Phases
 >3. [x] [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1763)
 >4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244)
 >5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659)
->6. [ ] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) — not started
+>6. [x] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921)
 >
 > Phase II - Convert Prototype into a Local Application (http://localhost:8501)
 >>Create a simple website you run on your own computer using Local Streamlit App.
@@ -110,7 +110,7 @@ Line numbers point into the raw `.ipynb` JSON (open the file with a text editor,
 | [Acceptance Criteria](Notebooks/01_Phase%20I.ipynb#L2226) | 2226 | Every System and Sample Suitability threshold, in one Colab-form-editable block (see [Acceptance Criteria](#acceptance-criteria) below) |
 | [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244) | 2244 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ; ends with a PASS/FAIL banner and a full criteria summary table |
 | [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659) | 2659 | Per-sample QC (quantity %CV, dilutional linearity), the [Sample Name Mapping](Notebooks/01_Phase%20I.ipynb#L2873) dict, and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L2867) tables |
-| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) | 2921 | Not started |
+| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) | 2921 | Two interactive Plotly figures — standard curve with a toggleable QC-controls overlay, and standard curve with a toggleable per-sample overlay (see [Prototype Graphs](#prototype-graphs) below) |
 
 ## Acceptance Criteria
 
@@ -175,6 +175,15 @@ The workflow now assumes **multiple samples**, each with its own unspiked diluti
 
 Editable as Colab form fields (`#@param {type:"string"}`), just like Acceptance Criteria. The cell first prints every `Base Sample` actually detected in the run's data (e.g. `['S1', 'S2', 'S3']`), then exposes 8 fixed slots (`Sample 1`–`Sample 8`) — enough headroom for the largest runs seen so far — each with a **Base Sample**, **Sample ID**, and **Sample Name** text box. Type a detected Base Sample into a slot's Base Sample box to activate it; leave a slot's Base Sample box blank to skip it, so runs with anywhere from 1 to 8 samples all work without editing code. A slot whose Base Sample doesn't match anything detected is skipped with a printed warning rather than silently applied (catches typos). The resulting `sample_id_map` and `sample_display_names` dicts are keyed by Base Sample; only the averaged table picks them up (as `Sample ID` and `Sample Name`) — the by-dilution table doesn't carry either, since it's a traceability table keyed on `Sample #` already.
 
+## Prototype Graphs
+
+Two interactive Plotly figures (`build_curve_figure()`), both plotting Ct vs `log10(Quantity)` — the same axes the standard curve regression was fit on. Each figure always shows the fitted **Regression Line** (rendered semi-transparent so the overlay colors stand out) and the **STD Points** it was built from. A boxed, titled legend sits top right; the equation and R² sit in their own box bottom right. Every other series is its own toggleable trace, starting hidden — click its legend entry to show it — using a fixed, colorblind-safe 8-color palette (Okabe & Ito, 2008) assigned in the same order every run.
+
+- **Standard Curve — QC Controls**: one toggleable trace per `control_type` (NTC, NEC, ERC, HPC, MPC, LPC).
+- **Standard Curve — Sample Results**: one toggleable trace per `Sample #`, labeled with its Sample Name if one was filled in above.
+
+Overlay points are positioned at each well's **own back-calculated Quantity** — its Ct run back through the curve equation (the `quantity` column already computed for every well) — rather than a known/expected concentration. This shows where a well's observed Ct falls within the curve's dynamic range (interpolated vs. extrapolated beyond the standards): an NTC/NEC that picked up any signal shows up at whatever apparent concentration that Ct implies, and a sample shows whether its Ct is inside or outside the validated range. Recovery/bias against a known target is already covered numerically by the System/Sample Suitability tables above (`% Recovery`, `Back-Calc %Bias`) — this view complements rather than repeats those. Wells with an `Undetermined` Ct (or non-positive Quantity) simply have no point to plot, same as a clean negative control is expected to show nothing.
+
 ## Backlog — Recommended Cleanup
 
 Reviewed but **not yet implemented**. Roughly highest-value first.
@@ -201,7 +210,7 @@ The notebook auto-detects Colab vs. local execution (`IN_COLAB` flag) — outsid
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\pip install pandas numpy openpyxl klib ipykernel
+.venv\Scripts\pip install pandas numpy openpyxl klib ipykernel plotly
 .venv\Scripts\python -m ipykernel install --user --name resiDNA-venv --display-name "resiDNA (.venv)"
 ```
 Then select the **resiDNA (.venv)** kernel in VS Code / Jupyter and run all cells.
