@@ -4,33 +4,26 @@ Residual DNA qPCR Analysis Python Notebooks
 
 ## Project Organization (In Progress)
 
-This repository is organized to keep qPCR analysis workflows, datasets, scripts, and results easy to track and reproduce.
+This repository is organized to keep qPCR analysis workflows, datasets, scripts, and results easy to track and reproduce. Reflects the actual current layout, not an aspirational one — `Scripts/`, `Figures/`, and `Results/` are reserved (empty, `.gitkeep`-only) for the Phase V extraction/export work described in the Road Map below.
 
 ```text
-qpcr-data-analysis/
+resiDNA_workflows/
 │
-├── notebooks/
-│   ├── 01_data_import.ipynb
-│   ├── 02_quality_control.ipynb
-│   ├── 03_ddct_analysis.ipynb
-│   ├── 04_visualization.ipynb
-│   └── 05_statistical_analysis.ipynb
+├── Notebooks/
+│   └── 01_Phase I.ipynb          # Phase I notebook — import through prototype graphs
 │
-├── data/
-│   ├── experiment_001/
-│   ├── experiment_002/
-│   ├── experiment_003/
-│   └── sample_data/
+├── Data/
+│   ├── experiment_001.xlsx       # primary dataset the notebook is built/verified against
+│   ├── sample_data_001.xls       # additional real-world dataset, queued for validation
+│   └── sample_data_002.xls       # additional real-world dataset, queued for validation
 │
-├── scripts/
-│   ├── qpcr.py          # ΔCt, ΔΔCt, fold change calculations
-│   ├── plotting.py      # plotting functions
-│   └── utils.py         # helper functions
-│
-├── figures/
-├── results/
+├── Scripts/                      # reserved — Phase V: style_table()/suitability logic moves here
+├── Figures/                      # reserved — exported plots
+├── Results/                      # reserved — exported results (e.g. CSV)
 └── README.md
 ```
+
+**Next up**: validate `01_Phase I.ipynb` end-to-end against `sample_data_001.xls` and `sample_data_002.xls` (currently only run against `experiment_001.xlsx`). Note both are the legacy `.xls` format rather than `.xlsx` — reading them will need the `xlrd` engine (`.venv\Scripts\pip install xlrd`), and the notebook's file-loading cell currently hardcodes `experiment_001.xlsx`, so that'll need pointing at whichever file is under test.
 
 ## Application Architect (In Progress)
 
@@ -75,6 +68,7 @@ Order of Web Application Development Phases
 >4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244)
 >5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659)
 >6. [x] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921)
+>7. [ ] Validate against `Data/sample_data_001.xls` and `Data/sample_data_002.xls`
 >
 > Phase II - Convert Prototype into a Local Application (http://localhost:8501)
 >>Create a simple website you run on your own computer using Local Streamlit App.
@@ -207,8 +201,7 @@ Reviewed but **not yet implemented**. Roughly highest-value first.
 - [ ] Commented-out `to_csv` / `processed_path` blocks are scattered through the parser cells — either wire up a real export step or delete them.
 - [ ] The `Handle Warnings` cell is empty; either add the `warnings` filter it implies or drop the section.
 - [ ] Notebook outputs (styled tables, the `klib` plot) are committed inline, which makes diffs large and line references drift. Consider `nbstripout` or committing a rendered HTML export alongside a stripped notebook.
-- [ ] `style_table()` is defined in the notebook; once Phase V starts it belongs in `scripts/plotting.py`, along with the suitability logic in `scripts/qpcr.py`.
-- [ ] The `Project Organization` tree at the top of this README still describes a planned layout (`notebooks/`, `scripts/`, `figures/`, `results/`) that does not match the current repo (`Notebooks/`, `Data/`). Reconcile the two.
+- [ ] `style_table()` is defined in the notebook; once Phase V starts it belongs in `Scripts/plotting.py`, along with the suitability logic in `Scripts/qpcr.py`.
 
 ## Running the Notebook Locally
 
