@@ -132,8 +132,7 @@ All thresholds — System Suitability and Sample Suitability alike — live in o
 | ERC %Recovery | same formula | 50%–150% |
 
 **NTC / NEC**
-- NTC: Ct must be `Undetermined` on all replicates.
-- NEC: Ct `Undetermined` **or** `Ct ≥ LOQ_Ct`.
+- Both NTC and NEC pass per well if Ct is `Undetermined` **or** `Ct ≥ LOQ_Ct`.
 - LOQ formula — ICH Q2(R1) / USP \<1225\> signal-to-noise method, using the standard curve's residual standard error (`Std error`, i.e. Sy.x) as σ:
   ```
   ΔlogQ_LOQ = 10 × Std_error / |Slope|
@@ -141,7 +140,7 @@ All thresholds — System Suitability and Sample Suitability alike — live in o
          = y-Intercept − 10 × Std_error   (shortcut, valid when Slope < 0)
   ```
 
-The System Suitability section ends with a color-coded PASS/FAIL banner and a full criteria summary table (`style_criteria_summary()`) consolidating every STD/ERC/PC/NTC/NEC check above into one Group/Item/Criteria/Value/Status table, Fail rows highlighted red.
+The System Suitability section ends with a color-coded PASS/FAIL banner, then a **wide** summary table per group via `display_wide_table()` — one row per item, with each criterion as its own Value/Pass column pair, instead of one row per item×criterion. STD Curve splits into two tables (**STD Curve Fit**, one row for the plate's curve; **STD Curve Points**, one row per STD point with Ct %CV and Back-Calc %Bias side by side), and **ERC / PC** gets one row per control with Quantity %CV and % Recovery side by side. **NTC / NEC** only ever has a single criterion per item, so it stays in the simpler Item/Criteria/Value/Status form via `display_criteria_group()` — wide and long are the same shape there. A row is highlighted red if any of its criteria fail; a group with nothing to evaluate for a given run (e.g. no ERC/PC controls present) prints a note instead of an empty table.
 
 **Sample Suitability**
 | Check | Formula | Pass |
@@ -151,7 +150,7 @@ The System Suitability section ends with a color-coded PASS/FAIL banner and a fu
 
 Since spiked series are no longer collected, dilutional linearity no longer compares to a spiked 100% recovery target. Instead, for each sample, the dilution with the lowest combined Ct %CV + Quantity %CV (its most precise triplicate) is taken as an internal reference, and every dilution's `Dilution Adjusted` quantity is compared against it. `% Bias` is reported signed (can be positive or negative); the pass/fail gate uses its absolute value.
 
-The Sample Suitability section similarly ends with a full criteria summary table; a separate PASS/FAIL banner was dropped as redundant since the table already states each item's status.
+The Sample Suitability section similarly ends with one summary table per group (Quantity %CV, Dilutional Linearity) via `display_criteria_group()`; a separate PASS/FAIL banner was dropped as redundant since the tables already state each item's status.
 
 **Final Sample Results**
 
@@ -161,20 +160,20 @@ The workflow now assumes **multiple samples**, each with its own unspiked diluti
 
    | Column | Meaning |
    |---|---|
-   | `Base Sample` | Sample ID with the dilution suffix stripped (e.g. `S1 D2` → `S1`) |
-   | `Sample Name` | Looked up from the editable `sample_display_names` mapping (see below) |
+   | `Sample #` | Base Sample ID with the dilution suffix stripped (e.g. `S1 D2` → `S1`) |
+   | `Sample Dilution` | The individual dilution's full identifier (e.g. `S1 D2`) |
    | `Quantity %CV`, `Quantity %CV Suitability` | Triplicate %CV for that dilution, and its own `Pass`/`Fail`/`N/A` verdict |
    | `Linearity %Bias`, `Linearity Suitability` | %Bias vs. the sample's reference dilution, and its own `Pass`/`Fail`/`N/A` verdict |
    | `Suitability` | Combined verdict — `Pass` only if **both** Quantity %CV and Linearity pass; `Fail` if either fails; `N/A` if neither fails but one is unevaluable |
-   | `Total DNA (ng/mL)`, `Total DNA per Protein (ng/mg)` | Reported for every row where available |
+   | `Total DNA (ng/mL)`, `Protein Concentration (mg/mL)`, `DNA per Protein (ng/mg)` | Reported for every row where available |
 
-2. *Final Sample Results — Averaged per Sample* — for each `Base Sample`, `Total DNA (ng/mL)` and `Total DNA per Protein (ng/mg)` are averaged across only that sample's suitability-**passing** dilutions, producing one row per sample. `Dilutions Averaged` records which dilutions (and how many) went into the average, for traceability. Samples with zero passing dilutions are excluded from this table and listed separately by the cell's `not_reported` print output. Rows with `Status = "Below"` (averaged value under the 15 ng/mg limit) are highlighted light green.
+2. *Final Sample Results — Averaged per Sample* — for each `Sample #`, `Total DNA (ng/mL)` and `DNA per Protein (ng/mg)` are averaged across only that sample's suitability-**passing** dilutions; `Protein Concentration (mg/mL)` is constant per sample (same for every dilution) so it's carried through rather than averaged. `Sample ID` sits immediately next to `Sample #`, followed by `Sample Name` — both pulled from the Sample Name Mapping boxes below. Produces one row per sample. `Dilutions Averaged` records which dilutions (and how many) went into the average, for traceability. Samples with zero passing dilutions are excluded from this table and listed separately by the cell's `not_reported` print output. The `≤ 15 ng/mg Status` column (name reflects the live `SAMPLE_DNA_PER_PROTEIN_LIMIT`) reads `Below`/`Above`/`N/A`; rows reading `Below` are highlighted light green.
 
-Both Final Sample Results tables render at **4-decimal precision**; every other table in the notebook defaults to 2 decimals (see `style_table()`).
+`Total DNA (ng/mL)`, `Protein Concentration (mg/mL)`, and `DNA per Protein (ng/mg)` render at **4-decimal precision** wherever they appear, via `style_table()`'s `precision_overrides` (`FINAL_RESULTS_PRECISION`); every other column — in these tables and everywhere else in the notebook — defaults to 2 decimals.
 
 **Sample Name Mapping**
 
-A `sample_display_names` dict, auto-populated with every detected `Base Sample` ID (e.g. `"S1"`, `"S2"`) mapped to an empty string, sits just above the Final Sample Results tables — edit the values directly (`sample_display_names["S1"] = "Patient 001"`) to attach real sample names; both result tables pick it up via a `Sample Name` column.
+Editable as Colab form fields (`#@param {type:"string"}`), just like Acceptance Criteria. The cell first prints every `Base Sample` actually detected in the run's data (e.g. `['S1', 'S2', 'S3']`), then exposes 8 fixed slots (`Sample 1`–`Sample 8`) — enough headroom for the largest runs seen so far — each with a **Base Sample**, **Sample ID**, and **Sample Name** text box. Type a detected Base Sample into a slot's Base Sample box to activate it; leave a slot's Base Sample box blank to skip it, so runs with anywhere from 1 to 8 samples all work without editing code. A slot whose Base Sample doesn't match anything detected is skipped with a printed warning rather than silently applied (catches typos). The resulting `sample_id_map` and `sample_display_names` dicts are keyed by Base Sample; only the averaged table picks them up (as `Sample ID` and `Sample Name`) — the by-dilution table doesn't carry either, since it's a traceability table keyed on `Sample #` already.
 
 ## Backlog — Recommended Cleanup
 
