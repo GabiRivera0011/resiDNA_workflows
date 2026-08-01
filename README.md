@@ -110,7 +110,7 @@ Line numbers point into the raw `.ipynb` JSON (open the file with a text editor,
 | [Acceptance Criteria](Notebooks/01_Phase%20I.ipynb#L2226) | 2226 | Every System and Sample Suitability threshold, in one Colab-form-editable block (see [Acceptance Criteria](#acceptance-criteria) below) |
 | [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244) | 2244 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ; ends with a PASS/FAIL banner and a full criteria summary table |
 | [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659) | 2659 | Per-sample QC (quantity %CV, dilutional linearity), the [Sample Name Mapping](Notebooks/01_Phase%20I.ipynb#L2873) dict, and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L2867) tables |
-| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) | 2921 | Two interactive Plotly figures — standard curve with a toggleable QC-controls overlay, and standard curve with a toggleable per-sample overlay (see [Prototype Graphs](#prototype-graphs) below) |
+| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) | 2921 | Three interactive Plotly figures — standard curve with a toggleable QC-controls overlay, standard curve with a toggleable per-sample overlay, and an amplification curve (ΔRn vs Cycle) plot with toggleable STD/NTC/NEC/PC/Samples groups (see [Prototype Graphs](#prototype-graphs) below) |
 
 ## Acceptance Criteria
 
@@ -183,6 +183,12 @@ Two interactive Plotly figures (`build_curve_figure()`), both plotting Ct vs `lo
 - **Standard Curve — Sample Results**: one toggleable trace per `Sample #`, labeled with its Sample Name if one was filled in above.
 
 Overlay points are positioned at each well's **own back-calculated Quantity** — its Ct run back through the curve equation (the `quantity` column already computed for every well) — rather than a known/expected concentration. This shows where a well's observed Ct falls within the curve's dynamic range (interpolated vs. extrapolated beyond the standards): an NTC/NEC that picked up any signal shows up at whatever apparent concentration that Ct implies, and a sample shows whether its Ct is inside or outside the validated range. Recovery/bias against a known target is already covered numerically by the System/Sample Suitability tables above (`% Recovery`, `Back-Calc %Bias`) — this view complements rather than repeats those. Wells with an `Undetermined` Ct (or non-positive Quantity) simply have no point to plot, same as a clean negative control is expected to show nothing.
+
+**Amplification Curves — ΔRn vs Cycle**
+
+Reads the `Amplification Data` tab (header row 23, i.e. 0-indexed row 22): `Well`, `Cycle`, and `ΔRn` are read by column name, since not every export has the same columns (`Sample Name` in particular may be absent, or hand-filled from the Results tab). Rather than trust that tab's own `Sample Name`, well classification is joined in from `parsed_df` (already built from the Results tab) via `Well` — this works regardless of which columns a given Amplification Data export happens to have.
+
+One toggleable trace per well, grouped into legend entries via Plotly `legendgroup` (all traces in a group show/hide together as one click): **STD** (dark gray, semi-transparent), **NTC** (dark forest green), **NEC** (midnight blue), **PC** (HPC/MPC/LPC bundled into one group, pale pink) — plus one entry **per Base Sample** (e.g. `S1`, `S2`), each its own pale pastel color (deliberately avoiding pink/rose tones so no sample is ever confused with PC), not bundled into one flat "Samples" color like the other groups. ERC isn't part of this plot. All groups start hidden, same click-to-show interaction model as the standard curve plots above (this plot uses its own palette rather than Okabe-Ito, since colors here were chosen for a specific look — and to keep every group and every sample visually distinct from one another — rather than categorical/colorblind-safety).
 
 ## Backlog — Recommended Cleanup
 
