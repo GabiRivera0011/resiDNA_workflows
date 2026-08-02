@@ -130,6 +130,8 @@ Both the notebook and the Streamlit app generate the same formatted PDF summariz
 
 ## Streamlit App
 
+**Live deployment**: https://residna.streamlit.app — hosted free on Streamlit Community Cloud, public, no installation needed. See below to run it locally instead.
+
 `app.py` is the Phase II local web app: upload a QuantStudio file and get the same System Suitability, Sample Suitability, and Final Sample Results sections as the notebook, without touching code, plus:
 - **Sample ID / Sample Name** inputs — one row per Base Sample actually detected in the upload (simpler than the notebook's 8 fixed `#@param` slots, since the app can generate inputs from real data).
 - **Standard Curve graphs** (QC-controls overlay and per-sample overlay) and **Amplification Curves (ΔRn vs Cycle)** — all interactive Plotly charts.
