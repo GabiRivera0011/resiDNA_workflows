@@ -1,8 +1,17 @@
+import sys
+from pathlib import Path
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import klib
+
+# Scripts/ lives at the repo root, one level up from this file's app/ folder
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Scripts"))
+
+from qpcr import classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct, compute_dilutional_linearity
+from plotting import style_table
 
 # Must be the very first Streamlit command — widens the page from the default
 # centered ~730px column to the full browser width, so wide tables (like Sample
@@ -12,77 +21,11 @@ st.set_page_config(page_title="Residual DNA QC Tool", layout="wide")
 st.title("Residual DNA QC Tool")
 
 
-# ---------------------------------------------------------------------------
-# Same shared table styler as the notebook's style_table() — kept identical so
-# the app's tables look like the PDF report / notebook output
-# ---------------------------------------------------------------------------
-def style_table(data, caption="", hide_index=True, precision=2, align="center",
-                 highlight_rows=None, highlight_color="#D4EDDA", precision_overrides=None):
-    styler = data.style.set_caption(caption)
-
-    if highlight_rows is not None:
-        def _highlight(row):
-            if highlight_rows.loc[row.name]:
-                return [f"background-color: {highlight_color} !important"] * len(row)
-            return [""] * len(row)
-        styler = styler.apply(_highlight, axis=1)
-
-    if hide_index:
-        styler = styler.hide(axis="index")
-
-    styler = styler.format(precision=precision, na_rep="—")
-
-    if precision_overrides:
-        for col, col_precision in precision_overrides.items():
-            if col in data.columns:
-                styler = styler.format(precision=col_precision, na_rep="—", subset=[col])
-
-    styler = styler.set_table_attributes(
-        'style="background-color:#FFFFFF; border-collapse:collapse;"'
-    )
-    styler = styler.set_table_styles([
-        {"selector": "caption", "props": [
-            ("caption-side", "top"), ("font-size", "13pt"), ("font-weight", "bold"),
-            ("text-align", "left"), ("padding", "4px 0 8px 0"),
-            ("color", "#2C3E50"), ("background-color", "#FFFFFF"),
-        ]},
-        {"selector": "th", "props": [
-            ("background-color", "#2C3E50"), ("color", "#FFFFFF"), ("font-weight", "bold"),
-            ("text-align", align), ("padding", "6px 12px"), ("border", "1px solid #2C3E50"),
-        ]},
-        {"selector": "td", "props": [
-            ("padding", "6px 12px"), ("border", "1px solid #DDDDDD"),
-            ("text-align", align), ("color", "#2C2C2C"), ("background-color", "#FFFFFF"),
-        ]},
-        {"selector": "tr:nth-child(even) td", "props": [("background-color", "#F7F9FA")]},
-    ])
-    return styler
-
-
 FINAL_RESULTS_PRECISION = {
     "Total DNA (ng/mL)": 4,
     "Protein Concentration (mg/mL)": 4,
     "DNA per Protein (ng/mg)": 4,
 }
-
-
-def classify_sample(sample_name, task):
-    name = str(sample_name).strip().upper()
-    if task == "STANDARD" or name.startswith("STD"):
-        return pd.Series(["Reference Standard", "STD"])
-    if name.startswith("NTC"):
-        return pd.Series(["Control", "NTC"])
-    if name.startswith("NEC"):
-        return pd.Series(["Control", "NEC"])
-    if name.startswith("ERC"):
-        return pd.Series(["Control", "ERC"])
-    if name.startswith("HPC"):
-        return pd.Series(["Control", "HPC"])
-    if name.startswith("MPC"):
-        return pd.Series(["Control", "MPC"])
-    if name.startswith("LPC"):
-        return pd.Series(["Control", "LPC"])
-    return pd.Series(["Sample", "Sample"])
 
 
 st.header("Upload QuantStudio File")
@@ -177,8 +120,7 @@ if uploaded_file is not None:
     curve_intercept = reg_stats["y-Intercept"]
     curve_efficiency = reg_stats["Efficiency"]
     curve_std_error = reg_stats["Std error"]
-    loq_log_qty = LOQ_SIGMA_MULTIPLIER * curve_std_error / abs(curve_slope)
-    loq_ct = curve_slope * loq_log_qty + curve_intercept
+    loq_ct = compute_sigma_ct(curve_std_error, curve_slope, curve_intercept, LOQ_SIGMA_MULTIPLIER)
 
     # --- STD Curve Point suitability (silent) ---
     std_suitability = (
@@ -204,15 +146,15 @@ if uploaded_file is not None:
         })
     )
 
-    def _recovery_bounds(control_type):
-        if control_type in ("HPC", "MPC", "LPC"):
-            return PC_RECOVERY_MIN, PC_RECOVERY_MAX
-        return ERC_RECOVERY_MIN, ERC_RECOVERY_MAX
-
     control_suitability["CV Pass"] = control_suitability["Quantity %CV"] <= CTRL_QTY_CV_MAX
     control_suitability["Recovery Pass"] = control_suitability.apply(
-        lambda row: _recovery_bounds(row["control_type"])[0]
-        <= row["% Recovery"] <= _recovery_bounds(row["control_type"])[1],
+        lambda row: recovery_bounds(
+            row["control_type"], PC_RECOVERY_MIN, PC_RECOVERY_MAX, ERC_RECOVERY_MIN, ERC_RECOVERY_MAX
+        )[0]
+        <= row["% Recovery"]
+        <= recovery_bounds(
+            row["control_type"], PC_RECOVERY_MIN, PC_RECOVERY_MAX, ERC_RECOVERY_MIN, ERC_RECOVERY_MAX
+        )[1],
         axis=1,
     )
 
@@ -294,24 +236,7 @@ if uploaded_file is not None:
         [["base_sample", "sample_name", "ct_cv_percent", "quantity_percent_cv", "dilution_adjusted"]]
         .copy()
     )
-    _combined_cv = (
-        unspiked_dilutions["ct_cv_percent"].fillna(float("inf"))
-        + unspiked_dilutions["quantity_percent_cv"].fillna(float("inf"))
-    )
-    reference_dilution_adjusted = (
-        unspiked_dilutions.assign(combined_cv=_combined_cv)
-        .sort_values("combined_cv")
-        .drop_duplicates(subset="base_sample", keep="first")
-        .set_index("base_sample")["dilution_adjusted"]
-    )
-    linearity_df = unspiked_dilutions.copy()
-    linearity_df["Reference Dilution Adjusted"] = linearity_df["base_sample"].map(reference_dilution_adjusted)
-    linearity_df["% Bias"] = (
-        (linearity_df["dilution_adjusted"] - linearity_df["Reference Dilution Adjusted"])
-        / linearity_df["Reference Dilution Adjusted"] * 100
-    )
-    linearity_df["Pass"] = (linearity_df["% Bias"].abs() <= SAMPLE_LINEARITY_BIAS_MAX).astype(object)
-    linearity_df.loc[linearity_df["% Bias"].isna(), "Pass"] = pd.NA
+    linearity_df = compute_dilutional_linearity(unspiked_dilutions, SAMPLE_LINEARITY_BIAS_MAX)
     linearity_df = linearity_df.rename(columns={"sample_name": "Sample"})
 
     # --- Final Sample Results by Dilution (silent build) ---
@@ -344,15 +269,10 @@ if uploaded_file is not None:
     )
     final_results = final_results.drop(columns="Pass")
 
-    def _combined_suitability(row):
-        statuses = {row["Quantity %CV Suitability"], row["Linearity Suitability"]}
-        if "Fail" in statuses:
-            return "Fail"
-        if "N/A" in statuses:
-            return "N/A"
-        return "Pass"
-
-    final_results["Suitability"] = final_results.apply(_combined_suitability, axis=1)
+    final_results["Suitability"] = final_results.apply(
+        lambda row: combined_suitability([row["Quantity %CV Suitability"], row["Linearity Suitability"]]),
+        axis=1,
+    )
     final_results = final_results.rename(columns={"Base Sample": "Sample #", "Sample": "Sample Dilution"})[[
         "Sample #", "Sample Dilution", "Dilution Factor",
         "Quantity %CV", "Quantity %CV Suitability",
