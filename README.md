@@ -130,7 +130,7 @@ Both the notebook and the Streamlit app generate the same formatted PDF summariz
 
 ## Streamlit App
 
-**Live deployment**: https://residna.streamlit.app — hosted free on Streamlit Community Cloud, public, no installation needed. See below to run it locally instead.
+**Live deployment**: https://residna.streamlit.app — hosted on Streamlit Community Cloud, no installation needed. Access is restricted to authorized company viewers (see [Data Privacy & Security](#data-privacy--security) before uploading real company data). See below to run it locally instead.
 
 `app.py` is the Phase II local web app: upload a QuantStudio file and get the same System Suitability, Sample Suitability, and Final Sample Results sections as the notebook, without touching code, plus:
 - **Sample ID / Sample Name** inputs — one row per Base Sample actually detected in the upload (simpler than the notebook's 8 fixed `#@param` slots, since the app can generate inputs from real data).
@@ -140,6 +140,24 @@ Both the notebook and the Streamlit app generate the same formatted PDF summariz
 Only the sections that map to the PDF report are shown — raw file preview, parse stats, and the classification table run silently in the background rather than cluttering the page.
 
 `.streamlit/config.toml` forces a light theme and wide layout (needed to fit the 11-column Sample Suitability table without scrolling) — this only takes effect on server *start*, not on a hot-reload. Text inputs (Assay Run Info, Sample ID/Name, Signatures) commit their value on Enter or on losing focus — typing a value and immediately clicking Download without clicking elsewhere first can capture the field's previous value.
+
+## Data Privacy & Security
+
+**In transit**
+- The Community Cloud link is served over HTTPS by default — traffic between the browser and Streamlit's servers is encrypted.
+
+**In the app**
+- `app.py` processes uploaded files entirely in memory (`st.file_uploader` → pandas parsing → Plotly charts / PDF generation). Nothing is written to disk or a database on the server — no `Results/` writes, no SQLite (that's a Phase III+ design, not implemented yet). Once a session ends or the app restarts, the uploaded file and its analysis are gone.
+- The PDF report is streamed straight to the browser as a download; it isn't retained server-side.
+
+**Who can reach the app**
+- Access to the live link is restricted via Streamlit Community Cloud's viewer authentication: in the app's dashboard under **Settings → Sharing**, the app is switched from "public" to an allowlist of company email addresses — only people who sign in with one of those emails can open it.
+- Residual risk worth knowing: even restricted, uploaded data still passes through Streamlit's shared Community Cloud infrastructure, which is intended for demos/public apps rather than as a substitute for company-controlled hosting. For the most sensitive runs, run the app locally instead (see below) so data never leaves your machine or network.
+
+**What's in this repo**
+- This repository is **public**. `Data/` contains QuantStudio instrument export files (`Sample Setup` / `Results` / `Amplification Data` sheets) used to validate the parsing and QC logic. Sample identifiers in these files are lab codes (e.g. `S1`), not patient or personal information, and are not connected to any real company production run. Never commit real production data, customer information, or actual company results to this repo — only masked/synthetic validation data belongs here.
+
+**Bottom line**: viewer authentication controls *who* can reach the link; it does not make Community Cloud a secure vault for regulated or highly confidential data. For genuinely sensitive production runs, prefer running the app locally or on company-controlled infrastructure.
 
 ## Backlog — Recommended Cleanup
 
