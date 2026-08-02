@@ -8,9 +8,11 @@ Residual DNA qPCR Analysis — Colab Notebook and Local Streamlit App
 ```text
 resiDNA_workflows/
 │
-├── app.py                        # Phase II Streamlit app — local web UI, mirrors the notebook
+├── app/
+│   ├── app.py                     # Phase II Streamlit app — local web UI, mirrors the notebook
+│   └── requirements.txt           # dependencies for the Streamlit app
 ├── .streamlit/
-│   └── config.toml                # light theme + wide layout
+│   └── config.toml                # light theme + wide layout (must stay at repo root)
 │
 ├── Notebooks/
 │   └── 01_Phase I.ipynb          # Phase I notebook — import through PDF report generation
@@ -175,9 +177,11 @@ Then select the **resiDNA (.venv)** kernel in VS Code / Jupyter and run all cell
 
 ## Running the Streamlit App Locally
 
+Run these from the repo root — `.streamlit/config.toml` only applies when Streamlit is launched from the directory that contains it.
+
 ```powershell
 python -m venv .venv
-.venv\Scripts\pip install streamlit pandas numpy openpyxl xlrd klib plotly reportlab
-.venv\Scripts\streamlit run app.py
+.venv\Scripts\pip install -r app\requirements.txt
+.venv\Scripts\streamlit run app\app.py
 ```
 Opens at `http://localhost:8501` — only reachable while that command is still running in a terminal; closing it (or restarting your computer) stops the app until you run it again.
