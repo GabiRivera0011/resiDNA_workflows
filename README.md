@@ -151,13 +151,10 @@ Only the sections that map to the PDF report are shown — raw file preview, par
 - The PDF report is streamed straight to the browser as a download; it isn't retained server-side.
 
 **Who can reach the app**
-- Access to the live link is restricted via Streamlit Community Cloud's viewer authentication: in the app's dashboard under **Settings → Sharing**, the app is switched from "public" to an allowlist of company email addresses — only people who sign in with one of those emails can open it.
+- Access to the live link is restricted via Streamlit Community Cloud's viewer authentication: in the app's dashboard under **Settings → Sharing**, it is set to an allowlist of company email addresses — only people who sign in with one of those emails can open it.
 - Residual risk worth knowing: even restricted, uploaded data still passes through Streamlit's shared Community Cloud infrastructure, which is intended for demos/public apps rather than as a substitute for company-controlled hosting. For the most sensitive runs, run the app locally instead (see below) so data never leaves your machine or network.
 
-**What's in this repo**
-- This repository is **public**. `Data/` contains QuantStudio instrument export files (`Sample Setup` / `Results` / `Amplification Data` sheets) used to validate the parsing and QC logic. Sample identifiers in these files are lab codes (e.g. `S1`), not patient or personal information, and are not connected to any real company production run. Never commit real production data, customer information, or actual company results to this repo — only masked/synthetic validation data belongs here.
-
-**Bottom line**: viewer authentication controls *who* can reach the link; it does not make Community Cloud a secure vault for regulated or highly confidential data. For genuinely sensitive production runs, prefer running the app locally or on company-controlled infrastructure.
+For moving to a fully company-hosted deployment (on-prem/local server or Azure + SharePoint embed), see [IT_Deployment_Guide.md](IT_Deployment_Guide.md).
 
 ## Backlog — Recommended Cleanup
 
