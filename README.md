@@ -62,12 +62,12 @@ Order of Web Application Development Phases
 >
 >Phase I - Colab Scientific Prototype (.ipynb)
 >>Prove that the qPCR analysis logic works correctly.
->1. [x] [Load QuantStudio file](Notebooks/01_Phase%20I.ipynb#L84)
->2. [x] [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1116)
->3. [x] [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1763)
->4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244)
->5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659)
->6. [x] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921)
+>1. [x] [Load QuantStudio file](Notebooks/01_Phase%20I.ipynb#L93)
+>2. [x] [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1230)
+>3. [x] [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L2131)
+>4. [x] [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2664)
+>5. [x] [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L3795)
+>6. [x] [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L4925)
 >7. [ ] Validate against `Data/sample_data_001.xls` and `Data/sample_data_002.xls`
 >
 > Phase II - Convert Prototype into a Local Application (http://localhost:8501)
@@ -97,18 +97,21 @@ Line numbers point into the raw `.ipynb` JSON (open the file with a text editor,
 
 | Section | Line | What it does |
 |---|---|---|
-| [Load QuantStudio 5 Dataset](Notebooks/01_Phase%20I.ipynb#L84) | 84 | Colab/local dual-path setup ([`IN_COLAB`](Notebooks/01_Phase%20I.ipynb#L47) detection), reads `Data/experiment_001.xlsx` |
-| [Table Styling Helper](Notebooks/01_Phase%20I.ipynb#L278) | 278 | [`style_table()`](Notebooks/01_Phase%20I.ipynb#L295) and [`style_criteria_summary()`](Notebooks/01_Phase%20I.ipynb#L295) — shared formatting for every table in the notebook (2-decimal default, light-mode-forced colors, optional row highlighting) |
-| [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1116) | 1116 | Renames/standardizes columns, converts dtypes, drops empty rows, handles `Undetermined` Ct |
-| [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L1763) | 1763 | [`classify_sample()`](Notebooks/01_Phase%20I.ipynb#L2006) splits wells into Reference Standard / Control (NTC, NEC, ERC, HPC, MPC, LPC) / Sample |
-| [Acceptance Criteria](Notebooks/01_Phase%20I.ipynb#L2226) | 2226 | Every System and Sample Suitability threshold, in one Colab-form-editable block (see [Acceptance Criteria](#acceptance-criteria) below) |
-| [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2244) | 2244 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ; ends with a PASS/FAIL banner and a full criteria summary table |
-| [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L2659) | 2659 | Per-sample QC (quantity %CV, dilutional linearity), the [Sample Name Mapping](Notebooks/01_Phase%20I.ipynb#L2873) dict, and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L2867) tables |
-| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L2921) | 2921 | Three interactive Plotly figures — standard curve with a toggleable QC-controls overlay, standard curve with a toggleable per-sample overlay, and an amplification curve (ΔRn vs Cycle) plot with toggleable STD/NTC/NEC/PC/Samples groups (see [Prototype Graphs](#prototype-graphs) below) |
+| [Load QuantStudio 5 Dataset](Notebooks/01_Phase%20I.ipynb#L93) | 93 | Colab/local dual-path setup ([`IN_COLAB`](Notebooks/01_Phase%20I.ipynb#L158) detection), reads `Data/experiment_001.xlsx` |
+| [Table Styling Helper](Notebooks/01_Phase%20I.ipynb#L289) | 289 | [`style_table()`](Notebooks/01_Phase%20I.ipynb#L309) and [`style_criteria_summary()`](Notebooks/01_Phase%20I.ipynb#L380) — shared formatting for every table in the notebook (2-decimal default, light-mode-forced colors, optional row highlighting) |
+| [QuantStudio Results Parser](Notebooks/01_Phase%20I.ipynb#L1230) | 1230 | Renames/standardizes columns, converts dtypes, drops empty rows, handles `Undetermined` Ct |
+| [Output Verification](Notebooks/01_Phase%20I.ipynb#L1980) | 1980 | Re-reads the raw Results sheet fresh and checks, well by well, that instrument-computed QC values (`Ct CV%`, `Quantity %CV`, `% Recovery`, `Back Calculation % difference Mean`) survive renaming/klib cleaning unchanged — catches parser bugs, not instrument math |
+| [Data Classification Engine](Notebooks/01_Phase%20I.ipynb#L2131) | 2131 | [`classify_sample()`](Notebooks/01_Phase%20I.ipynb#L2379) splits wells into Reference Standard / Control (NTC, NEC, ERC, HPC, MPC, LPC) / Sample |
+| [Acceptance Criteria](Notebooks/01_Phase%20I.ipynb#L2617) | 2617 | Every System and Sample Suitability threshold, in one Colab-form-editable block (see [Acceptance Criteria](#acceptance-criteria) below) |
+| [System Suitability Engine](Notebooks/01_Phase%20I.ipynb#L2664) | 2664 | Plate-level QC — STD curve fit, ERC/PC recovery, NTC/NEC vs. LOQ; ends with a PASS/FAIL banner and a full criteria summary table |
+| [Sample Result Processing](Notebooks/01_Phase%20I.ipynb#L3795) | 3795 | Per-sample QC (quantity %CV, dilutional linearity), a [manual golden-reference check](Notebooks/01_Phase%20I.ipynb#L4132) for the one value actually computed here (`% Bias`), the [Sample Name Mapping](Notebooks/01_Phase%20I.ipynb#L4457) dict, and the [Final Sample Results](Notebooks/01_Phase%20I.ipynb#L4447) tables |
+| [Create Prototype Graphs](Notebooks/01_Phase%20I.ipynb#L4925) | 4925 | Three interactive Plotly figures — standard curve with a toggleable QC-controls overlay, standard curve with a toggleable per-sample overlay, and an amplification curve (ΔRn vs Cycle) plot with toggleable STD/NTC/NEC/PC/Samples groups (see [Prototype Graphs](#prototype-graphs) below) |
 
 ## Acceptance Criteria
 
 All thresholds — System Suitability and Sample Suitability alike — live in one consolidated cell right after Data Classification, before either engine runs, exposed as Colab form fields (`#@param`) so they're editable without touching code. This is also the natural seam for the Phase III criteria-settings page.
+
+Nearly every value below marked "instrument-computed" is read forward from the QuantStudio export as-is rather than recalculated (`Ct CV%`, `Quantity %CV`, `% Recovery`, `Back Calculation % difference Mean` are already columns in the raw Results sheet) — the notebook just applies the pass/fail thresholds on top. An [Output Verification](Notebooks/01_Phase%20I.ipynb#L1980) cell re-reads the untouched sheet and checks these survive renaming/klib cleaning unchanged, to catch parsing bugs rather than instrument math. The one exception is Dilutional Linearity's `% Bias` (below), which is genuinely computed in-notebook.
 
 **STD (Standard Curve)**
 | Check | Formula | Pass |
@@ -143,6 +146,8 @@ The System Suitability section ends with a color-coded PASS/FAIL banner, then a 
 | Dilutional linearity | `%Bias = (x₁ − x₂) / x₂ × 100`, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV, and `x₁` is each dilution's `Dilution Adjusted` quantity | `\|%Bias\|` ≤ 20% |
 
 Since spiked series are no longer collected, dilutional linearity no longer compares to a spiked 100% recovery target. Instead, for each sample, the dilution with the lowest combined Ct %CV + Quantity %CV (its most precise triplicate) is taken as an internal reference, and every dilution's `Dilution Adjusted` quantity is compared against it. `% Bias` is reported signed (can be positive or negative); the pass/fail gate uses its absolute value.
+
+`% Bias` is the one suitability value actually computed in this notebook rather than pulled from the instrument, so the automated Output Verification check above doesn't cover it. A [manual golden-reference check](Notebooks/01_Phase%20I.ipynb#L4132) cell is provided instead — fill in a few hand/Excel-verified expected `% Bias` values and it flags any mismatch against the notebook's own calculation.
 
 The Sample Suitability section similarly ends with one summary table per group (Quantity %CV, Dilutional Linearity) via `display_criteria_group()`; a separate PASS/FAIL banner was dropped as redundant since the tables already state each item's status.
 
@@ -193,7 +198,7 @@ Reviewed but **not yet implemented**. Roughly highest-value first.
 
 **Clarity**
 
-- [ ] Section headings mix `##`/`###`/`####` inconsistently (e.g. `#### Table Styling Helper` sits between `##` sections). Normalize the hierarchy.
+
 
 
 
