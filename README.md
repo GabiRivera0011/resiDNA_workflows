@@ -125,6 +125,8 @@ Parser       QC Engine       Calculations
 
 Dilutional linearity compares each dilution against its own sample's most precise dilution. Two result tables are produced: *Final Sample Results by Dilution* (every dilution, for traceability) and *Final Sample Results — Averaged per Sample* (averaged across only that sample's passing dilutions; samples with zero passing dilutions are excluded and listed separately).
 
+**Triplicate single-outlier exclusion**: when a dilution's full 3-well Quantity %CV fails 25%, `resolve_sample_replicates()` (`Scripts/qpcr.py`) checks whether dropping the one well driving the CV up brings the remaining 2 wells' %CV under 25%. If so, that pair's mean becomes the dilution's Quantity %CV / Total DNA (ng/mL) / DNA per Protein — a "Replicates Used: 2" dilution that now passes — instead of an outright fail; a dilution that still fails with its best 2 wells is left as a 3-well fail, unchanged. This redefines Quantity %CV Suitability itself, so the by-dilution table and the averaged table always agree, and only kicks in when the full triplicate already fails — a passing triplicate's instrument-reported figures are never recalculated.
+
 ## Criteria Verification
 
 - **Output Verification**: all thresholds live in one Colab-form-editable cell (`#@param`) in the notebook, right after Data Classification. Values marked "instrument-computed" above are read forward from the QuantStudio export as-is (not recalculated) — the notebook's Output Verification cell checks they survive parsing unchanged. The one exception is Dilutional Linearity's `% Bias`, which is genuinely computed rather than read from the instrument.

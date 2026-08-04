@@ -63,6 +63,73 @@ def compute_sigma_ct(std_error, slope, intercept, sigma_multiplier):
     return slope * log_qty + intercept
 
 
+def resolve_sample_replicates(samples_df, cv_max):
+    """Per-dilution triplicate handling with single-outlier exclusion.
+
+    `samples_df` must have one row per well, with columns: sample_name,
+    quantity (raw per-well value, not the mean), dilution_factor,
+    protein_concentration, quantity_percent_cv, dilution_adjusted,
+    total_dna_per_ml, total_dna_per_protein_concentration (the last four
+    are the instrument's own triplicate figures, identical across a
+    dilution's 3 well-rows).
+
+    When a dilution's full-triplicate Quantity %CV already passes cv_max,
+    the instrument's own reported figures are passed through untouched —
+    consistent with this pipeline's rule that instrument-computed values
+    survive as-is, not recalculated. Only when the full-triplicate %CV
+    fails does this check whether dropping the single well driving the CV
+    up brings the remaining 2 wells' %CV under cv_max; if so, that pair's
+    mean becomes the dilution's Quantity %CV / Dilution Adjusted / Total
+    DNA (ng/mL) / DNA per Protein (2-of-3 replicates) instead of an
+    outright fail. A dilution that still fails with its best 2 wells is
+    left as a 3-well fail, unchanged.
+
+    Returns one row per sample_name: quantity_percent_cv, dilution_adjusted,
+    total_dna_per_ml, total_dna_per_protein_concentration, replicates_used.
+    """
+    def mean_sd_cv(values):
+        s = pd.Series(values, dtype=float)
+        mean = s.mean()
+        sd = s.std()
+        cv = (sd / mean * 100) if mean else float("nan")
+        return mean, sd, cv
+
+    rows = []
+    for sample_name, group in samples_df.groupby("sample_name", sort=False):
+        quantities = group["quantity"].dropna().tolist()
+        dilution_factor = group["dilution_factor"].iloc[0]
+        protein_concentration = group["protein_concentration"].iloc[0]
+
+        # Default: trust the instrument's own reported triplicate figures as-is
+        cv = group["quantity_percent_cv"].iloc[0]
+        dilution_adjusted = group["dilution_adjusted"].iloc[0]
+        total_dna_per_ml = group["total_dna_per_ml"].iloc[0]
+        total_dna_per_protein = group["total_dna_per_protein_concentration"].iloc[0]
+        replicates_used = len(quantities)
+
+        if len(quantities) == 3 and not (pd.notna(cv) and cv <= cv_max):
+            pairs = [mean_sd_cv(quantities[:i] + quantities[i + 1:]) for i in range(3)]
+            best_mean, _, best_cv = min(pairs, key=lambda t: t[2])
+            if pd.notna(best_cv) and best_cv <= cv_max:
+                dilution_adjusted = best_mean * dilution_factor
+                total_dna_per_ml = dilution_adjusted
+                total_dna_per_protein = (
+                    dilution_adjusted / protein_concentration if protein_concentration else float("nan")
+                )
+                cv, replicates_used = best_cv, 2
+
+        rows.append({
+            "sample_name": sample_name,
+            "quantity_percent_cv": cv,
+            "dilution_adjusted": dilution_adjusted,
+            "total_dna_per_ml": total_dna_per_ml,
+            "total_dna_per_protein_concentration": total_dna_per_protein,
+            "replicates_used": replicates_used,
+        })
+
+    return pd.DataFrame(rows)
+
+
 def compute_dilutional_linearity(unspiked_dilutions, bias_max):
     """Reference-dilution Dilutional Linearity %Bias check.
 

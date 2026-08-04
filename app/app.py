@@ -10,7 +10,10 @@ import klib
 # Scripts/ lives at the repo root, one level up from this file's app/ folder
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Scripts"))
 
-from qpcr import classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct, compute_dilutional_linearity
+from qpcr import (
+    classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct,
+    compute_dilutional_linearity, resolve_sample_replicates,
+)
 from plotting import style_table, format_df_for_display
 
 # Must be the very first Streamlit command — widens the page from the default
@@ -25,6 +28,7 @@ FINAL_RESULTS_PRECISION = {
     "Total DNA (ng/mL)": 4,
     "Protein Concentration (mg/mL)": 4,
     "DNA per Protein (ng/mg)": 4,
+    "Replicates Used": 0,
 }
 
 
@@ -278,30 +282,33 @@ if uploaded_file is not None:
         .reset_index(drop=True)
     )
 
+    # --- Triplicate resolution: single-outlier exclusion when a dilution's full
+    # 3-well Quantity %CV fails SAMPLE_QTY_CV_MAX (silent) ---
+    unspiked_samples = samples_df[~samples_df["sample_name"].str.endswith(" S")].copy()
+    resolved_replicates = resolve_sample_replicates(unspiked_samples, SAMPLE_QTY_CV_MAX)
+    unspiked_dilution_info = unspiked_samples.drop_duplicates(subset="sample_name")[[
+        "base_sample", "sample_name", "ct_cv_percent", "dilution_factor", "protein_concentration",
+    ]]
+
     # --- Dilutional Linearity suitability (silent) ---
-    unspiked_dilutions = (
-        samples_df[~samples_df["sample_name"].str.endswith(" S")]
-        .drop_duplicates(subset="sample_name")
-        [["base_sample", "sample_name", "ct_cv_percent", "quantity_percent_cv", "dilution_adjusted"]]
-        .copy()
+    unspiked_dilutions = unspiked_dilution_info.merge(
+        resolved_replicates[["sample_name", "quantity_percent_cv", "dilution_adjusted"]],
+        on="sample_name",
     )
     linearity_df = compute_dilutional_linearity(unspiked_dilutions, SAMPLE_LINEARITY_BIAS_MAX)
     linearity_df = linearity_df.rename(columns={"sample_name": "Sample"})
 
     # --- Final Sample Results by Dilution (silent build) ---
-    unspiked_samples = samples_df[~samples_df["sample_name"].str.endswith(" S")].copy()
     final_results = (
-        unspiked_samples.drop_duplicates(subset="sample_name")
-        [[
-            "base_sample", "sample_name", "dilution_factor", "quantity_percent_cv",
-            "total_dna_per_ml", "protein_concentration", "total_dna_per_protein_concentration",
-        ]]
+        unspiked_dilution_info[["base_sample", "sample_name", "dilution_factor", "protein_concentration"]]
+        .merge(resolved_replicates, on="sample_name")
         .rename(columns={
             "base_sample": "Base Sample", "sample_name": "Sample",
             "dilution_factor": "Dilution Factor", "quantity_percent_cv": "Quantity %CV",
             "total_dna_per_ml": "Total DNA (ng/mL)",
             "protein_concentration": "Protein Concentration (mg/mL)",
             "total_dna_per_protein_concentration": "DNA per Protein (ng/mg)",
+            "replicates_used": "Replicates Used",
         })
         .sort_values(["Base Sample", "Sample"])
         .reset_index(drop=True)
@@ -324,7 +331,7 @@ if uploaded_file is not None:
     )
     final_results = final_results.rename(columns={"Base Sample": "Sample #", "Sample": "Sample Dilution"})[[
         "Sample #", "Sample Dilution", "Dilution Factor",
-        "Quantity %CV", "Quantity %CV Suitability",
+        "Quantity %CV", "Replicates Used", "Quantity %CV Suitability",
         "Linearity %Bias", "Linearity Suitability",
         "Total DNA (ng/mL)", "Protein Concentration (mg/mL)", "DNA per Protein (ng/mg)",
         "Suitability",
