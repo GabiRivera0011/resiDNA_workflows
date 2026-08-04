@@ -1,5 +1,37 @@
 """Shared table styling used by both the Phase I notebook and the Streamlit app."""
 
+import pandas as pd
+
+
+def format_value(value, precision):
+    """Render a single cell value as a display string: NaN -> em dash, numeric ->
+    fixed precision, everything else -> str(). Shared with app.py's PDF builder so
+    on-screen and PDF numbers always agree.
+    """
+    if pd.isna(value):
+        return "—"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"{value:.{precision}f}"
+    return str(value)
+
+
+def format_df_for_display(data, precision=2, precision_overrides=None):
+    """Format every cell to its final display string (see format_value).
+
+    Used by style_table() below to pre-format values to strings before they ever
+    reach a Styler — st.table() (unlike Jupyter) rebuilds its own HTML from the
+    Styler's underlying data rather than rendering its CSS, and right-aligns any
+    column that's still numeric dtype regardless of the Styler's own text-align
+    rules. Formatting to strings first removes that numeric signal, so every column
+    renders with the alignment style_table() actually asked for.
+    """
+    precision_overrides = precision_overrides or {}
+    formatted = data.copy()
+    for col in formatted.columns:
+        col_precision = precision_overrides.get(col, precision)
+        formatted[col] = formatted[col].apply(lambda v: format_value(v, col_precision))
+    return formatted
+
 
 def style_table(data, caption="", hide_index=True, precision=2, align="center",
                  highlight_rows=None, highlight_color="#D4EDDA", precision_overrides=None):
@@ -7,7 +39,8 @@ def style_table(data, caption="", hide_index=True, precision=2, align="center",
     so their tables (and the PDF report) look identical. Colors are explicit so
     tables render in light mode regardless of the editor/notebook theme.
     """
-    styler = data.style.set_caption(caption)
+    formatted = format_df_for_display(data, precision=precision, precision_overrides=precision_overrides)
+    styler = formatted.style.set_caption(caption)
 
     if highlight_rows is not None:
         def _highlight(row):
@@ -18,15 +51,6 @@ def style_table(data, caption="", hide_index=True, precision=2, align="center",
 
     if hide_index:
         styler = styler.hide(axis="index")
-
-    styler = styler.format(precision=precision, na_rep="—")
-
-    # Per-column precision overrides (e.g. Total DNA / Protein Concentration / DNA per
-    # Protein always render at 4 decimals, regardless of this table's default precision)
-    if precision_overrides:
-        for col, col_precision in precision_overrides.items():
-            if col in data.columns:
-                styler = styler.format(precision=col_precision, na_rep="—", subset=[col])
 
     styler = styler.set_table_attributes(
         'style="background-color:#FFFFFF; border-collapse:collapse;"'

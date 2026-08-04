@@ -11,7 +11,7 @@ import klib
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Scripts"))
 
 from qpcr import classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct, compute_dilutional_linearity
-from plotting import style_table
+from plotting import style_table, format_df_for_display
 
 # Must be the very first Streamlit command — widens the page from the default
 # centered ~730px column to the full browser width, so wide tables (like Sample
@@ -619,21 +619,6 @@ if uploaded_file is not None:
         "PdfHeaderCell", parent=_cell_style, fontName="Helvetica-Bold", textColor=colors.white,
     )
 
-    def _format_value(value, precision):
-        if pd.isna(value):
-            return "—"
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return f"{value:.{precision}f}"
-        return str(value)
-
-    def _format_df_for_pdf(data, precision_overrides=None, default_precision=2):
-        precision_overrides = precision_overrides or {}
-        formatted = data.copy()
-        for col in formatted.columns:
-            precision = precision_overrides.get(col, default_precision)
-            formatted[col] = formatted[col].apply(lambda v: _format_value(v, precision))
-        return formatted
-
     def _pdf_table(data, highlight_mask=None, highlight_color=REPORT_FAIL_COLOR, col_widths=None):
         n_cols = len(data.columns)
         if col_widths is None:
@@ -695,31 +680,31 @@ if uploaded_file is not None:
     ))
     pdf_story.append(Spacer(1, 0.1 * inch))
     pdf_story.append(_pdf_table(
-        _format_df_for_pdf(curve_fit_wide),
+        format_df_for_display(curve_fit_wide),
         highlight_mask=(curve_fit_wide["R² Pass"] == "Fail") | (curve_fit_wide["Efficiency Pass"] == "Fail"),
     ))
     pdf_story.append(Spacer(1, 0.1 * inch))
     pdf_story.append(_pdf_table(
-        _format_df_for_pdf(std_points_wide),
+        format_df_for_display(std_points_wide),
         highlight_mask=(std_points_wide["Ct %CV Pass"] == "Fail") | (std_points_wide["Back-Calc Pass"] == "Fail"),
     ))
     if len(erc_pc_wide):
         pdf_story.append(Spacer(1, 0.1 * inch))
         pdf_story.append(_pdf_table(
-            _format_df_for_pdf(erc_pc_wide),
+            format_df_for_display(erc_pc_wide),
             highlight_mask=(erc_pc_wide["CV Pass"] == "Fail") | (erc_pc_wide["Recovery Pass"] == "Fail"),
         ))
     if ntc_nec_rows:
         _ntc_nec_df = pd.DataFrame(ntc_nec_rows)
         pdf_story.append(Spacer(1, 0.1 * inch))
-        pdf_story.append(_pdf_table(_format_df_for_pdf(_ntc_nec_df), highlight_mask=_ntc_nec_df["Status"] == "Fail"))
+        pdf_story.append(_pdf_table(format_df_for_display(_ntc_nec_df), highlight_mask=_ntc_nec_df["Status"] == "Fail"))
 
     pdf_story.append(Paragraph("Sample Suitability", _section_style))
-    pdf_story.append(_pdf_table(_format_df_for_pdf(final_results, precision_overrides=FINAL_RESULTS_PRECISION)))
+    pdf_story.append(_pdf_table(format_df_for_display(final_results, precision_overrides=FINAL_RESULTS_PRECISION)))
 
     pdf_story.append(Paragraph("Final Sample Results", _section_style))
     pdf_story.append(_pdf_table(
-        _format_df_for_pdf(reportable_results, precision_overrides=FINAL_RESULTS_PRECISION),
+        format_df_for_display(reportable_results, precision_overrides=FINAL_RESULTS_PRECISION),
         highlight_mask=reportable_results[_status_col] == "Below",
         highlight_color=REPORT_PASS_COLOR,
     ))
