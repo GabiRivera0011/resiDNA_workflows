@@ -56,14 +56,63 @@ if uploaded_file is not None:
     regression_table = pd.DataFrame(regression_stats)
 
     # --- Parse & clean (silent — same steps as the notebook) ---
+    # "%" is normalized here (matching klib.clean_column_names' own "%" -> "_percent_"
+    # rule below) so columns like "Ct CV%" already read as their final "ct_cv_percent"
+    # name before klib ever sees them. That's what lets col_exclude, just below, name
+    # the columns this pipeline depends on downstream: col_exclude is passed straight
+    # through to klib's column-dropping step, which runs BEFORE klib's own name
+    # cleanup — passing it the pre-cleanup spelling (e.g. "ct_cv%") would silently
+    # fail to match and leave the column unprotected.
     df.columns = (
-        df.columns.str.strip().str.lower().str.replace(" ", "_").str.replace("-", "_")
+        df.columns.str.strip().str.lower()
+        .str.replace(" ", "_").str.replace("-", "_")
+        .str.replace("%", "_percent_", regex=False)
+        .str.replace(r"_+", "_", regex=True)
+        .str.strip("_")
     )
     numeric_columns = ["ct", "ct_mean", "ct_sd", "quantity", "quantity_mean", "quantity_sd"]
     for col in numeric_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-    df = klib.data_cleaning(df)
+
+    # klib.data_cleaning() drops any column that's >=90% missing or single-valued
+    # (including all-NaN, which counts as single-valued) FOR THIS PARTICULAR DATASET.
+    # Which columns end up sparse/constant varies run to run (e.g. a run with only one
+    # replicate per standard has no computed Ct %CV), so the columns this pipeline
+    # depends on downstream must be pinned here — otherwise the same file that works
+    # for one run's data can KeyError on another. See also the r2/slope/y_intercept
+    # note further down, which hits the same klib behavior for the regression block.
+    _required_column_labels = {
+        "sample_name": "Sample Name", "task": "Task", "well": "Well",
+        "ct": "Ct", "ct_mean": "Ct Mean", "ct_sd": "Ct SD",
+        "quantity": "Quantity", "quantity_mean": "Quantity Mean", "quantity_sd": "Quantity SD",
+        "quantity_percent_cv": "Quantity %CV", "ct_cv_percent": "Ct CV%",
+        "percent_recovery": "% Recovery",
+        "back_calculation_percent_difference_mean": "Back Calculation % difference Mean",
+        "dilution_adjusted": "Dilution Adjusted", "dilution_factor": "Dilution Factor",
+        "total_dna_per_ml": "Total DNA per mL", "protein_concentration": "Protein Concentration",
+        "total_dna_per_protein_concentration": "Total DNA per Protein Concentration",
+    }
+    _columns_required_downstream = list(_required_column_labels)
+
+    # These aren't dropped by klib below — they're missing from the uploaded file itself,
+    # meaning the QuantStudio export didn't compute them at all (e.g. Back Calculation /
+    # Protein Concentration columns are absent when spike-recovery or protein-normalization
+    # analysis wasn't enabled for the run). That's an incomplete export, not something this
+    # app can safely fill in, so stop here rather than let a later step KeyError confusingly.
+    _missing_from_source = [c for c in _columns_required_downstream if c not in df.columns]
+    if _missing_from_source:
+        _missing_labels = [_required_column_labels[c] for c in _missing_from_source]
+        st.error(
+            "This file is missing required column(s) that QuantStudio didn't export: "
+            f"**{', '.join(_missing_labels)}**.\n\n"
+            "Re-export the Results sheet with the corresponding analysis module(s) "
+            "enabled (e.g. Back Calculation requires spike-recovery analysis; Protein "
+            "Concentration requires protein normalization) and re-upload."
+        )
+        st.stop()
+
+    df = klib.data_cleaning(df, col_exclude=_columns_required_downstream)
     df["ct"] = df["ct"].replace("Undetermined", pd.NA)
     df["ct"] = pd.to_numeric(df["ct"])
     parsed_df = df.copy()

@@ -7,7 +7,17 @@ import pandas as pd
 
 
 def classify_sample(sample_name, task):
-    """Classify a well into Reference Standard, Control (with subtype), or Sample."""
+    """Classify a well into Reference Standard, Control (with subtype), or Sample.
+
+    A blank sample_name normally means an empty/unused well, not a real Sample —
+    except Reference Standard wells, which some exports leave unnamed and rely on
+    Task="STANDARD" alone to identify. So blank name + non-STANDARD task is
+    Unclassified rather than falling through to Sample, where it would otherwise
+    corrupt every sample_name-keyed groupby downstream (e.g. base_sample).
+    """
+    if pd.isna(sample_name) and task != "STANDARD":
+        return pd.Series(["Unclassified", None])
+
     name = str(sample_name).strip().upper()
 
     if task == "STANDARD" or name.startswith("STD"):
