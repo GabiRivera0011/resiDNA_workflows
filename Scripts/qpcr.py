@@ -68,8 +68,8 @@ def resolve_sample_replicates(samples_df, cv_max):
 
     `samples_df` must have one row per well, with columns: sample_name,
     quantity (raw per-well value, not the mean), dilution_factor,
-    protein_concentration, quantity_percent_cv, dilution_adjusted,
-    total_dna_per_ml, total_dna_per_protein_concentration (the last four
+    protein_concentration, quantity_percent_cv, quantity_mean, dilution_adjusted,
+    total_dna_per_ml, total_dna_per_protein_concentration (the last five
     are the instrument's own triplicate figures, identical across a
     dilution's 3 well-rows).
 
@@ -79,13 +79,14 @@ def resolve_sample_replicates(samples_df, cv_max):
     survive as-is, not recalculated. Only when the full-triplicate %CV
     fails does this check whether dropping the single well driving the CV
     up brings the remaining 2 wells' %CV under cv_max; if so, that pair's
-    mean becomes the dilution's Quantity %CV / Dilution Adjusted / Total
-    DNA (ng/mL) / DNA per Protein (2-of-3 replicates) instead of an
-    outright fail. A dilution that still fails with its best 2 wells is
-    left as a 3-well fail, unchanged.
+    mean becomes the dilution's Quantity %CV / Quantity Mean / Dilution
+    Adjusted / Total DNA (ng/mL) / DNA per Protein (2-of-3 replicates)
+    instead of an outright fail. A dilution that still fails with its best
+    2 wells is left as a 3-well fail, unchanged.
 
-    Returns one row per sample_name: quantity_percent_cv, dilution_adjusted,
-    total_dna_per_ml, total_dna_per_protein_concentration, replicates_used.
+    Returns one row per sample_name: quantity_percent_cv, quantity_mean,
+    dilution_adjusted, total_dna_per_ml, total_dna_per_protein_concentration,
+    replicates_used.
     """
     def mean_sd_cv(values):
         s = pd.Series(values, dtype=float)
@@ -102,6 +103,7 @@ def resolve_sample_replicates(samples_df, cv_max):
 
         # Default: trust the instrument's own reported triplicate figures as-is
         cv = group["quantity_percent_cv"].iloc[0]
+        quantity_mean = group["quantity_mean"].iloc[0]
         dilution_adjusted = group["dilution_adjusted"].iloc[0]
         total_dna_per_ml = group["total_dna_per_ml"].iloc[0]
         total_dna_per_protein = group["total_dna_per_protein_concentration"].iloc[0]
@@ -111,6 +113,7 @@ def resolve_sample_replicates(samples_df, cv_max):
             pairs = [mean_sd_cv(quantities[:i] + quantities[i + 1:]) for i in range(3)]
             best_mean, _, best_cv = min(pairs, key=lambda t: t[2])
             if pd.notna(best_cv) and best_cv <= cv_max:
+                quantity_mean = best_mean
                 dilution_adjusted = best_mean * dilution_factor
                 total_dna_per_ml = dilution_adjusted
                 total_dna_per_protein = (
@@ -121,6 +124,7 @@ def resolve_sample_replicates(samples_df, cv_max):
         rows.append({
             "sample_name": sample_name,
             "quantity_percent_cv": cv,
+            "quantity_mean": quantity_mean,
             "dilution_adjusted": dilution_adjusted,
             "total_dna_per_ml": total_dna_per_ml,
             "total_dna_per_protein_concentration": total_dna_per_protein,

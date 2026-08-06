@@ -28,6 +28,7 @@ FINAL_RESULTS_PRECISION = {
     "Total DNA (ng/mL)": 4,
     "Protein Concentration (mg/mL)": 4,
     "DNA per Protein (ng/mg)": 4,
+    "Quantity Mean": 4,
     "Replicates Used": 0,
 }
 
@@ -174,6 +175,10 @@ if uploaded_file is not None:
     curve_efficiency = reg_stats["Efficiency"]
     curve_std_error = reg_stats["Std error"]
     loq_ct = compute_sigma_ct(curve_std_error, curve_slope, curve_intercept, LOQ_SIGMA_MULTIPLIER)
+    # Standard curve is Ct = slope * log10(Quantity) + intercept, so inverting it at
+    # loq_ct converts the LOQ from Ct space back to the same Quantity units the
+    # standard curve (and every sample's Quantity Mean) is expressed in.
+    loq_quantity = 10 ** ((loq_ct - curve_intercept) / curve_slope)
 
     # --- STD Curve Point suitability (silent) ---
     std_suitability = (
@@ -305,7 +310,7 @@ if uploaded_file is not None:
         .rename(columns={
             "base_sample": "Base Sample", "sample_name": "Sample",
             "dilution_factor": "Dilution Factor", "quantity_percent_cv": "Quantity %CV",
-            "total_dna_per_ml": "Total DNA (ng/mL)",
+            "quantity_mean": "Quantity Mean", "total_dna_per_ml": "Total DNA (ng/mL)",
             "protein_concentration": "Protein Concentration (mg/mL)",
             "total_dna_per_protein_concentration": "DNA per Protein (ng/mg)",
             "replicates_used": "Replicates Used",
@@ -330,7 +335,7 @@ if uploaded_file is not None:
         axis=1,
     )
     final_results = final_results.rename(columns={"Base Sample": "Sample #", "Sample": "Sample Dilution"})[[
-        "Sample #", "Sample Dilution", "Dilution Factor",
+        "Sample #", "Sample Dilution", "Dilution Factor", "Quantity Mean",
         "Quantity %CV", "Replicates Used", "Quantity %CV Suitability",
         "Linearity %Bias", "Linearity Suitability",
         "Total DNA (ng/mL)", "Protein Concentration (mg/mL)", "DNA per Protein (ng/mg)",
@@ -361,12 +366,21 @@ if uploaded_file is not None:
             "Total DNA (ng/mL)": ("Total DNA (ng/mL)", "mean"),
             "Protein Concentration (mg/mL)": ("Protein Concentration (mg/mL)", "first"),
             "DNA per Protein (ng/mg)": ("DNA per Protein (ng/mg)", "mean"),
+            "Quantity Mean": ("Quantity Mean", "mean"),
             "Dilutions Averaged": ("Sample Dilution", lambda s: f"{', '.join(sorted(s))} (n={len(s)})"),
         })
         .reset_index()
     )
     reportable_results.insert(1, "Sample ID", reportable_results["Sample #"].map(sample_id_map))
     reportable_results.insert(2, "Sample Name", reportable_results["Sample #"].map(sample_display_names))
+
+    # Compares the sample's Quantity Mean (averaged across the same passing
+    # dilutions as the reportable results above) against the standard curve's
+    # LOQ threshold, expressed in that same Quantity domain. Undetermined when
+    # no quantity was reported at all (every replicate used was Undetermined).
+    reportable_results["LOQ"] = reportable_results["Quantity Mean"].apply(
+        lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
+    )
 
     _status_col = f"≤ {SAMPLE_DNA_PER_PROTEIN_LIMIT:.0f} ng/mg Status"
     reportable_results[_status_col] = reportable_results["DNA per Protein (ng/mg)"].apply(
