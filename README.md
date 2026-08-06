@@ -124,11 +124,11 @@ Parser       QC Engine       Calculations
 | Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 25% |
 | Dilutional linearity | `%Bias = (x₁ − x₂) / x₂ × 100`, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV, and `x₁` is each dilution's `Dilution Adjusted` quantity | `\|%Bias\|` ≤ 20% |
 
-Dilutional linearity compares each dilution against its own sample's most precise dilution. Two result tables are produced: *Final Sample Results by Dilution* (every dilution, for traceability) and *Final Sample Results — Averaged per Sample* (averaged across only that sample's passing dilutions; samples with zero passing dilutions are excluded and listed separately).
+Two tables: *Final Sample Results by Dilution* (every dilution) and *Final Sample Results — Averaged per Sample* (averaged across passing dilutions only; samples with none are excluded and listed separately).
 
-The averaged table's **LOQ** column (placed right after `Dilutions Averaged`) flags whether the sample clears the assay's limit of quantification: its `Quantity Mean` (averaged across the same passing dilutions as the rest of the row) is compared against `LOQ_Qty` (see NTC/NEC above) — `Below` if it's under that threshold, `Undetermined` if every replicate used was `Undetermined`, `Above` otherwise.
+**LOQ Status** (after `Dilutions Averaged`): the sample's averaged `Quantity Mean` vs. `LOQ_Qty` (see NTC/NEC above) → `Below`, `Above`, or `Undetermined` if no replicate had a value.
 
-**Triplicate single-outlier exclusion**: when a dilution's full 3-well Quantity %CV fails 25%, `resolve_sample_replicates()` (`Scripts/qpcr.py`) checks whether dropping the one well driving the CV up brings the remaining 2 wells' %CV under 25%. If so, that pair's mean becomes the dilution's Quantity %CV / Quantity Mean / Total DNA (ng/mL) / DNA per Protein — a "Replicates Used: 2" dilution that now passes — instead of an outright fail; a dilution that still fails with its best 2 wells is left as a 3-well fail, unchanged. This redefines Quantity %CV Suitability itself, so the by-dilution table and the averaged table always agree, and only kicks in when the full triplicate already fails — a passing triplicate's instrument-reported figures are never recalculated.
+**Triplicate single-outlier exclusion**: if a full 3-well Quantity %CV fails 25%, `resolve_sample_replicates()` (`Scripts/qpcr.py`) drops the outlier well and re-checks the remaining 2; if they pass, that pair's mean replaces the dilution's Quantity %CV / Quantity Mean / Total DNA / DNA per Protein ("Replicates Used: 2") instead of a fail. Only triggers on an already-failing triplicate — passing ones keep the instrument's reported figures as-is.
 
 ## Criteria Verification
 

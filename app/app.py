@@ -378,7 +378,7 @@ if uploaded_file is not None:
     # dilutions as the reportable results above) against the standard curve's
     # LOQ threshold, expressed in that same Quantity domain. Undetermined when
     # no quantity was reported at all (every replicate used was Undetermined).
-    reportable_results["LOQ"] = reportable_results["Quantity Mean"].apply(
+    reportable_results["LOQ Status"] = reportable_results["Quantity Mean"].apply(
         lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
     )
 
