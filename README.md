@@ -126,7 +126,7 @@ Parser       QC Engine       Calculations
 
 Two tables: *Final Sample Results by Dilution* (every dilution) and *Final Sample Results — Averaged per Sample* (averaged across passing dilutions only; samples with none are excluded and listed separately).
 
-**LOQ Status** (after `Dilutions Averaged`): the sample's averaged `Quantity Mean` vs. `LOQ_Qty` (see NTC/NEC above) → `Below`, `Above`, or `Undetermined` if no replicate had a value.
+**LOQ Status** (after `Dilutions Averaged`, header reads `LOQ Status (≥ <LOQ_Qty>)`): the sample's averaged `Quantity Mean` vs. `LOQ_Qty` (see NTC/NEC above) → `Below`, `Above`, or `Undetermined` if no replicate had a value.
 
 **Triplicate single-outlier exclusion**: if a full 3-well Quantity %CV fails 25%, `resolve_sample_replicates()` (`Scripts/qpcr.py`) drops the outlier well and re-checks the remaining 2; if they pass, that pair's mean replaces the dilution's Quantity %CV / Quantity Mean / Total DNA / DNA per Protein ("Replicates Used: 2") instead of a fail. Only triggers on an already-failing triplicate — passing ones keep the instrument's reported figures as-is.
 

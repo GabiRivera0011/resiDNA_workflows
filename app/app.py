@@ -378,7 +378,11 @@ if uploaded_file is not None:
     # dilutions as the reportable results above) against the standard curve's
     # LOQ threshold, expressed in that same Quantity domain. Undetermined when
     # no quantity was reported at all (every replicate used was Undetermined).
-    reportable_results["LOQ Status"] = reportable_results["Quantity Mean"].apply(
+    # The threshold itself is folded into the column name (same pattern as the
+    # DNA-per-Protein status column below) so it's visible right next to Quantity
+    # Mean without adding a column that just repeats one constant on every row.
+    _loq_status_col = f"LOQ Status (≥ {loq_quantity:.4f})"
+    reportable_results[_loq_status_col] = reportable_results["Quantity Mean"].apply(
         lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
     )
 
