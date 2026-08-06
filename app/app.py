@@ -379,12 +379,13 @@ if uploaded_file is not None:
     # LOQ threshold, expressed in that same Quantity domain. Undetermined when
     # no quantity was reported at all (every replicate used was Undetermined).
     # The threshold itself is folded into the column name (same pattern as the
-    # DNA-per-Protein status column below) so it's visible right next to Quantity
-    # Mean without adding a column that just repeats one constant on every row.
+    # DNA-per-Protein status column below) so it's still visible even though the
+    # raw Quantity Mean it's computed from isn't shown in this table.
     _loq_status_col = f"LOQ Status (≥ {loq_quantity:.4f})"
     reportable_results[_loq_status_col] = reportable_results["Quantity Mean"].apply(
         lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
     )
+    reportable_results = reportable_results.drop(columns="Quantity Mean")
 
     _status_col = f"≤ {SAMPLE_DNA_PER_PROTEIN_LIMIT:.0f} ng/mg Status"
     reportable_results[_status_col] = reportable_results["DNA per Protein (ng/mg)"].apply(
