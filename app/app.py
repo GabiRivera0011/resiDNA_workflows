@@ -334,8 +334,19 @@ if uploaded_file is not None:
         lambda row: combined_suitability([row["Quantity %CV Suitability"], row["Linearity Suitability"]]),
         axis=1,
     )
-    final_results = final_results.rename(columns={"Base Sample": "Sample #", "Sample": "Sample Dilution"})[[
-        "Sample #", "Sample Dilution", "Dilution Factor", "Quantity Mean",
+    # Per-dilution (not averaged) Quantity Mean vs. the standard curve's LOQ
+    # threshold — same comparison as the averaged table's footnote, but shown as
+    # its own column here since every row is already a single dilution/well group.
+    loq_qty_status_col = f"LOQ Status (LOQ<sub>(qty)</sub> = {loq_quantity:.4f})"
+    final_results[loq_qty_status_col] = final_results["Quantity Mean"].apply(
+        lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
+    )
+    # "Sample #" is kept here (not in the column list below) because
+    # reportable_results still groups by it further down — it's dropped only from
+    # the display/PDF copies right before rendering, since "Sample" (e.g. "S1 D1")
+    # already carries the same information for a human reader.
+    final_results = final_results.rename(columns={"Base Sample": "Sample #"})[[
+        "Sample #", "Sample", "Dilution Factor", "Quantity Mean", loq_qty_status_col,
         "Quantity %CV", "Replicates Used", "Quantity %CV Suitability",
         "Linearity %Bias", "Linearity Suitability",
         "Total DNA (ng/mL)", "Protein Concentration (mg/mL)", "DNA per Protein (ng/mg)",
@@ -367,30 +378,54 @@ if uploaded_file is not None:
             "Protein Concentration (mg/mL)": ("Protein Concentration (mg/mL)", "first"),
             "DNA per Protein (ng/mg)": ("DNA per Protein (ng/mg)", "mean"),
             "Quantity Mean": ("Quantity Mean", "mean"),
-            "Dilutions Averaged": ("Sample Dilution", lambda s: f"{', '.join(sorted(s))} (n={len(s)})"),
+            "Dilutions Averaged": ("Sample", lambda s: f"{', '.join(sorted(s))} (n={len(s)})"),
         })
         .reset_index()
     )
     reportable_results.insert(1, "Sample ID", reportable_results["Sample #"].map(sample_id_map))
     reportable_results.insert(2, "Sample Name", reportable_results["Sample #"].map(sample_display_names))
 
-    # Compares the sample's Quantity Mean (averaged across the same passing
-    # dilutions as the reportable results above) against the standard curve's
-    # LOQ threshold, expressed in that same Quantity domain. Undetermined when
-    # no quantity was reported at all (every replicate used was Undetermined).
-    # The threshold itself is folded into the column name (same pattern as the
-    # DNA-per-Protein status column below) so it's still visible even though the
-    # raw Quantity Mean it's computed from isn't shown in this table.
-    _loq_status_col = f"LOQ Status (≥ {loq_quantity:.4f})"
-    reportable_results[_loq_status_col] = reportable_results["Quantity Mean"].apply(
-        lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
-    )
-    reportable_results = reportable_results.drop(columns="Quantity Mean")
-
     _status_col = f"≤ {SAMPLE_DNA_PER_PROTEIN_LIMIT:.0f} ng/mg Status"
     reportable_results[_status_col] = reportable_results["DNA per Protein (ng/mg)"].apply(
         lambda v: "N/A" if pd.isna(v) else ("Below" if v < SAMPLE_DNA_PER_PROTEIN_LIMIT else "Above")
     )
+
+    # Rows whose Quantity Mean (averaged across the same passing dilutions as the
+    # rest of the row) doesn't clear the standard curve's LOQ threshold — or had
+    # no quantity at all (every replicate used was Undetermined) — get Total DNA /
+    # DNA per Protein grayed out with a raised asterisk instead of a separate
+    # status column, since the value itself is still worth showing, just flagged
+    # low-confidence. Computed after _status_col above since _apply_loq_footnote
+    # (below) turns these two columns into pre-formatted strings, which a later
+    # numeric comparison couldn't handle.
+    _below_loq_mask = reportable_results["Quantity Mean"].apply(lambda q: pd.isna(q) or q < loq_quantity)
+    loq_footnote_used = bool(_below_loq_mask.any())
+    reportable_results = reportable_results.drop(columns="Quantity Mean")
+    LOQ_FOOTNOTE_TEXT = (
+        "* Total DNA and DNA per Protein values marked with an asterisk were calculated "
+        f"from a sample concentration (Quantity) below the assay's limit of quantification "
+        f"(LOQ ≥ {loq_quantity:.4f}), or from replicates with no detectable signal. "
+        "Treat these results as low confidence."
+    )
+
+    def _apply_loq_footnote(data, wrap_flagged):
+        """Returns a copy of `data` with Total DNA / DNA per Protein pre-formatted to
+        FINAL_RESULTS_PRECISION, running flagged values through wrap_flagged (which
+        applies the low-confidence styling — gray, raised asterisk). Two different
+        wrap_flagged callables are used at the two render sites below, since Streamlit's
+        HTML and the PDF's reportlab markup need different tags for the same visual
+        effect (a real HTML5 <sup> raises text in a browser; reportlab has no such tag
+        and uses its own <super> instead, which a browser would just render inline)."""
+        data = data.copy()
+        for col in ["Total DNA (ng/mL)", "DNA per Protein (ng/mg)"]:
+            precision = FINAL_RESULTS_PRECISION[col]
+            data[col] = [
+                "—" if pd.isna(v) else (
+                    wrap_flagged(f"{v:.{precision}f}") if flagged else f"{v:.{precision}f}"
+                )
+                for v, flagged in zip(data[col], _below_loq_mask)
+            ]
+        return data
 
     # =========================================================================
     # DISPLAY — only the sections that appear in the PDF report
@@ -422,15 +457,21 @@ if uploaded_file is not None:
         ))
 
     st.header("Sample Suitability")
-    st.table(style_table(final_results, caption="Final Sample Results by Dilution",
+    st.table(style_table(final_results.drop(columns="Sample #"), caption="Final Sample Results by Dilution",
                           align="left", precision_overrides=FINAL_RESULTS_PRECISION))
 
     st.header("Final Sample Results")
     st.table(style_table(
-        reportable_results, caption="Averaged per Sample", align="left",
+        _apply_loq_footnote(
+            reportable_results,
+            lambda s: f'<span style="color:#999999; opacity:0.7;">{s}<sup>*</sup></span>',
+        ),
+        caption="Averaged per Sample", align="left",
         precision_overrides=FINAL_RESULTS_PRECISION,
         highlight_rows=reportable_results[_status_col] == "Below", highlight_color="#D4EDDA",
     ))
+    if loq_footnote_used:
+        st.caption(LOQ_FOOTNOTE_TEXT)
 
     # =========================================================================
     # Standard Curve graphs — Ct vs log10(Quantity), same regression line as the
@@ -644,6 +685,10 @@ if uploaded_file is not None:
     _header_cell_style = ParagraphStyle(
         "PdfHeaderCell", parent=_cell_style, fontName="Helvetica-Bold", textColor=colors.white,
     )
+    _footnote_style = ParagraphStyle(
+        "PdfFootnote", fontName="Helvetica-Oblique", fontSize=7, leading=9,
+        textColor=colors.HexColor("#888888"), spaceBefore=4,
+    )
 
     def _pdf_table(data, highlight_mask=None, highlight_color=REPORT_FAIL_COLOR, col_widths=None):
         n_cols = len(data.columns)
@@ -726,14 +771,24 @@ if uploaded_file is not None:
         pdf_story.append(_pdf_table(format_df_for_display(_ntc_nec_df), highlight_mask=_ntc_nec_df["Status"] == "Fail"))
 
     pdf_story.append(Paragraph("Sample Suitability", _section_style))
-    pdf_story.append(_pdf_table(format_df_for_display(final_results, precision_overrides=FINAL_RESULTS_PRECISION)))
+    pdf_story.append(_pdf_table(format_df_for_display(
+        final_results.drop(columns="Sample #"), precision_overrides=FINAL_RESULTS_PRECISION,
+    )))
 
     pdf_story.append(Paragraph("Final Sample Results", _section_style))
     pdf_story.append(_pdf_table(
-        format_df_for_display(reportable_results, precision_overrides=FINAL_RESULTS_PRECISION),
+        format_df_for_display(
+            _apply_loq_footnote(
+                reportable_results,
+                lambda s: f'<font color="#999999">{s}<super>*</super></font>',
+            ),
+            precision_overrides=FINAL_RESULTS_PRECISION,
+        ),
         highlight_mask=reportable_results[_status_col] == "Below",
         highlight_color=REPORT_PASS_COLOR,
     ))
+    if loq_footnote_used:
+        pdf_story.append(Paragraph(LOQ_FOOTNOTE_TEXT, _footnote_style))
 
     _sig_table = Table([
         ["Submitter", "Reviewer"],

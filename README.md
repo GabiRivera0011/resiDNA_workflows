@@ -124,9 +124,9 @@ Parser       QC Engine       Calculations
 | Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 25% |
 | Dilutional linearity | `%Bias = (x₁ − x₂) / x₂ × 100`, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV, and `x₁` is each dilution's `Dilution Adjusted` quantity | `\|%Bias\|` ≤ 20% |
 
-Two tables: *Final Sample Results by Dilution* (every dilution) and *Final Sample Results — Averaged per Sample* (averaged across passing dilutions only; samples with none are excluded and listed separately).
+Two tables: *Final Sample Results by Dilution* (every dilution) and *Final Sample Results — Averaged per Sample* (averaged across passing dilutions only; samples with none are excluded and listed separately). `Sample #` (e.g. `S1`) is used internally to group dilutions into the averaged table but isn't itself displayed in the by-dilution table — `Sample` (e.g. `S1 D1`) already carries that information.
 
-**LOQ Status** (after `Dilutions Averaged`, header reads `LOQ Status (≥ <LOQ_Qty>)`): the sample's averaged `Quantity Mean` vs. `LOQ_Qty` (see NTC/NEC above) → `Below`, `Above`, or `Undetermined` if no replicate had a value.
+**LOQ Status** (by-dilution table): whether a dilution's `Quantity Mean` is reliably quantifiable — `Above` (quantifiable), `Below` (under the LOQ, low confidence), or `Undetermined` (no signal detected).
 
 **Triplicate single-outlier exclusion**: if a full 3-well Quantity %CV fails 25%, `resolve_sample_replicates()` (`Scripts/qpcr.py`) drops the outlier well and re-checks the remaining 2; if they pass, that pair's mean replaces the dilution's Quantity %CV / Quantity Mean / Total DNA / DNA per Protein ("Replicates Used: 2") instead of a fail. Only triggers on an already-failing triplicate — passing ones keep the instrument's reported figures as-is.
 
