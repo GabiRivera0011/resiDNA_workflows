@@ -35,19 +35,22 @@ def format_df_for_display(data, precision=2, precision_overrides=None):
 
 def style_table(data, caption="", hide_index=True, precision=2, align="center",
                  highlight_rows=None, highlight_color="#D4EDDA", precision_overrides=None,
-                 dim_mask=None, dim_color="#999999", dim_opacity=0.6):
+                 dim_mask=None, dim_color="#999999"):
     """Presentation-ready styling for tables — used by both the notebook and app.py
     so their tables (and the PDF report) look identical. Colors are explicit so
     tables render in light mode regardless of the editor/notebook theme.
 
     `dim_mask` is a same-shaped boolean DataFrame (only the flagged columns need
     to be present) for de-emphasizing specific cells — e.g. a low-confidence
-    value — via real CSS (color/opacity), not by embedding HTML in the cell text.
-    st.table() renders cell values as plain text through an Arrow-serialized
-    table widget (unlike Jupyter's Styler.to_html()), so any HTML tags inside a
-    value show up as literal text rather than being rendered; CSS applied via
-    Styler.apply(), as done here and by highlight_rows above, is what actually
-    reaches the rendered table in both places.
+    value — via real CSS (text color only, not by embedding HTML in the cell
+    text). st.table() renders cell values as plain text through an
+    Arrow-serialized table widget (unlike Jupyter's Styler.to_html()), so any
+    HTML tags inside a value show up as literal text rather than being
+    rendered; CSS applied via Styler.apply(), as done here and by
+    highlight_rows above, is what actually reaches the rendered table in both
+    places. Deliberately no opacity here — it dims the whole cell, including
+    any highlight_rows background-color underneath it, washing out the color
+    instead of just de-emphasizing the text.
     """
     formatted = format_df_for_display(data, precision=precision, precision_overrides=precision_overrides)
     styler = formatted.style.set_caption(caption)
@@ -62,7 +65,7 @@ def style_table(data, caption="", hide_index=True, precision=2, align="center",
     if dim_mask is not None:
         def _dim(row):
             return [
-                f"color: {dim_color} !important; opacity: {dim_opacity} !important;"
+                f"color: {dim_color} !important;"
                 if col in dim_mask.columns and bool(dim_mask.loc[row.name, col])
                 else ""
                 for col in row.index

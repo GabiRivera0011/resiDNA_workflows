@@ -337,7 +337,7 @@ if uploaded_file is not None:
     # Per-dilution (not averaged) Quantity Mean vs. the standard curve's LOQ
     # threshold — same comparison as the averaged table's footnote, but shown as
     # its own column here since every row is already a single dilution/well group.
-    loq_qty_status_col = f"LOQ Status (LOQ<sub>(qty)</sub> = {loq_quantity:.4f})"
+    loq_qty_status_col = f"LOQ Status (LOQ conc = {loq_quantity:.4f})"
     final_results[loq_qty_status_col] = final_results["Quantity Mean"].apply(
         lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
     )
@@ -400,9 +400,11 @@ if uploaded_file is not None:
     _below_loq_mask = reportable_results["Quantity Mean"].apply(lambda q: pd.isna(q) or q < loq_quantity)
     loq_footnote_used = bool(_below_loq_mask.any())
     reportable_results = reportable_results.drop(columns="Quantity Mean")
+    # Doesn't start with "* " — st.caption() renders this as Markdown, where a
+    # leading "* " is parsed as a bullet list item instead of a literal asterisk.
     LOQ_FOOTNOTE_TEXT = (
-        "* Total DNA and DNA per Protein values marked with an asterisk were calculated "
-        f"from a sample concentration (Quantity) below the assay's limit of quantification "
+        "Values marked with an asterisk (*) were calculated from a sample "
+        f"concentration (Quantity) below the assay's limit of quantification "
         f"(LOQ ≥ {loq_quantity:.4f}), or from replicates with no detectable signal. "
         "Treat these results as low confidence."
     )
