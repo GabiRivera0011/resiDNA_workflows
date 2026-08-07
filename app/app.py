@@ -405,7 +405,7 @@ if uploaded_file is not None:
     LOQ_FOOTNOTE_TEXT = (
         "Values marked with an asterisk (*) were calculated from a sample "
         f"concentration (Quantity) below the assay's limit of quantification "
-        f"(LOQ ≥ {loq_quantity:.4f}), or from replicates with no detectable signal. "
+        f"(LOQ = {loq_quantity:.4f}), or from replicates with no detectable signal. "
         "Treat these results as low confidence."
     )
     _loq_footnote_cols = ["Total DNA (ng/mL)", "DNA per Protein (ng/mg)"]
@@ -471,13 +471,13 @@ if uploaded_file is not None:
         ))
 
     st.header("Sample Suitability")
-    st.table(style_table(final_results.drop(columns="Sample #"), caption="Final Sample Results by Dilution",
+    st.table(style_table(final_results.drop(columns="Sample #"), caption="Sample Results by Dilution",
                           align="left", precision_overrides=FINAL_RESULTS_PRECISION))
 
     st.header("Final Sample Results")
     st.table(style_table(
         reportable_results_display,
-        caption="Averaged per Sample", align="left",
+        caption="Final Sample Results", align="left",
         precision_overrides=FINAL_RESULTS_PRECISION,
         highlight_rows=reportable_results[_status_col] == "Below", highlight_color="#D4EDDA",
         dim_mask=loq_dim_mask,
