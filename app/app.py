@@ -392,12 +392,11 @@ if uploaded_file is not None:
 
     # Rows whose Quantity Mean (averaged across the same passing dilutions as the
     # rest of the row) doesn't clear the standard curve's LOQ threshold — or had
-    # no quantity at all (every replicate used was Undetermined) — get Total DNA /
-    # DNA per Protein grayed out with a raised asterisk instead of a separate
-    # status column, since the value itself is still worth showing, just flagged
-    # low-confidence. Computed after _status_col above since _apply_loq_footnote
-    # (below) turns these two columns into pre-formatted strings, which a later
-    # numeric comparison couldn't handle.
+    # no quantity at all (every replicate used was Undetermined) — get Total DNA
+    # / DNA per Protein flagged low-confidence instead of a separate status
+    # column: grayed out via dim_mask (real CSS, see style_table()'s docstring)
+    # with a trailing "*" on the value. Computed after _status_col above since
+    # the asterisk-appended strings below couldn't survive a numeric comparison.
     _below_loq_mask = reportable_results["Quantity Mean"].apply(lambda q: pd.isna(q) or q < loq_quantity)
     loq_footnote_used = bool(_below_loq_mask.any())
     reportable_results = reportable_results.drop(columns="Quantity Mean")
@@ -407,21 +406,34 @@ if uploaded_file is not None:
         f"(LOQ ≥ {loq_quantity:.4f}), or from replicates with no detectable signal. "
         "Treat these results as low confidence."
     )
+    _loq_footnote_cols = ["Total DNA (ng/mL)", "DNA per Protein (ng/mg)"]
 
-    def _apply_loq_footnote(data, wrap_flagged):
-        """Returns a copy of `data` with Total DNA / DNA per Protein pre-formatted to
-        FINAL_RESULTS_PRECISION, running flagged values through wrap_flagged (which
-        applies the low-confidence styling — gray, raised asterisk). Two different
-        wrap_flagged callables are used at the two render sites below, since Streamlit's
-        HTML and the PDF's reportlab markup need different tags for the same visual
-        effect (a real HTML5 <sup> raises text in a browser; reportlab has no such tag
-        and uses its own <super> instead, which a browser would just render inline)."""
+    # st.table() renders cell values as plain text (see style_table()'s dim_mask
+    # docstring in Scripts/plotting.py), so the marker here is a literal trailing
+    # "*" rather than a raised superscript — dim_mask (real CSS) grays out the
+    # whole value instead.
+    reportable_results_display = reportable_results.copy()
+    for _col in _loq_footnote_cols:
+        _precision = FINAL_RESULTS_PRECISION[_col]
+        reportable_results_display[_col] = [
+            "—" if pd.isna(v) else f"{v:.{_precision}f}{'*' if flagged else ''}"
+            for v, flagged in zip(reportable_results[_col], _below_loq_mask)
+        ]
+    loq_dim_mask = pd.DataFrame(
+        {col: _below_loq_mask for col in _loq_footnote_cols}, index=reportable_results.index
+    )
+
+    def _apply_pdf_loq_footnote(data):
+        """PDF-only: unlike st.table(), reportlab's Paragraph genuinely parses its
+        own markup, so the PDF gets a properly raised, gray asterisk via
+        <font>/<super> rather than dim_mask + a trailing "*"."""
         data = data.copy()
-        for col in ["Total DNA (ng/mL)", "DNA per Protein (ng/mg)"]:
+        for col in _loq_footnote_cols:
             precision = FINAL_RESULTS_PRECISION[col]
             data[col] = [
                 "—" if pd.isna(v) else (
-                    wrap_flagged(f"{v:.{precision}f}") if flagged else f"{v:.{precision}f}"
+                    f'<font color="#999999">{v:.{precision}f}<super>*</super></font>'
+                    if flagged else f"{v:.{precision}f}"
                 )
                 for v, flagged in zip(data[col], _below_loq_mask)
             ]
@@ -462,13 +474,11 @@ if uploaded_file is not None:
 
     st.header("Final Sample Results")
     st.table(style_table(
-        _apply_loq_footnote(
-            reportable_results,
-            lambda s: f'<span style="color:#999999; opacity:0.7;">{s}<sup>*</sup></span>',
-        ),
+        reportable_results_display,
         caption="Averaged per Sample", align="left",
         precision_overrides=FINAL_RESULTS_PRECISION,
         highlight_rows=reportable_results[_status_col] == "Below", highlight_color="#D4EDDA",
+        dim_mask=loq_dim_mask,
     ))
     if loq_footnote_used:
         st.caption(LOQ_FOOTNOTE_TEXT)
@@ -778,10 +788,7 @@ if uploaded_file is not None:
     pdf_story.append(Paragraph("Final Sample Results", _section_style))
     pdf_story.append(_pdf_table(
         format_df_for_display(
-            _apply_loq_footnote(
-                reportable_results,
-                lambda s: f'<font color="#999999">{s}<super>*</super></font>',
-            ),
+            _apply_pdf_loq_footnote(reportable_results),
             precision_overrides=FINAL_RESULTS_PRECISION,
         ),
         highlight_mask=reportable_results[_status_col] == "Below",
