@@ -108,27 +108,24 @@ Parser       QC Engine       Calculations
 | PC %Recovery | `(Dilution-Adjusted Qty / Reference-Adjusted Qty) × 100` | 80%–125% |
 | ERC %Recovery | same formula | 50%–150% |
 
-**NTC / NEC**
-- Both pass per well if Ct is `Undetermined` **or** `Ct ≥ LOQ_Ct`.
-- LOQ formula — ICH Q2(R1) / USP \<1225\> signal-to-noise method, using the standard curve's residual standard error (`Std error`) as σ:
-  ```
-  ΔlogQ_LOQ = 10 × Std_error / |Slope|
-  LOQ_Ct = Slope × ΔlogQ_LOQ + y-Intercept
-         = y-Intercept − 10 × Std_error   (shortcut, valid when Slope < 0)
-  ```
-- The same LOQ, expressed in Quantity units instead of Ct, is `LOQ_Qty = 10^((LOQ_Ct − y-Intercept) / Slope)` — the standard curve equation inverted at `LOQ_Ct`. Used by the Sample Suitability LOQ check below, since a sample's `Quantity Mean` (not its Ct) is what's directly comparable to the standard curve's own Quantity axis.
-
-**Sample Suitability**
-| Check | Formula | Pass |
+**Sample LOQ / STD Range** — replaces the old ICH-sigma LOQ formula. From the standard curve's own back-calculated values, take STD1 (highest nominal quantity) and STD6 (lowest):
+| Value | Source | Used for |
 |---|---|---|
-| Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 25% |
-| Dilutional linearity | `%Bias = (x₁ − x₂) / x₂ × 100`, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV, and `x₁` is each dilution's `Dilution Adjusted` quantity | `\|%Bias\|` ≤ 20% |
+| LOQ (Quantity) | STD6 `Back-Calc Mean` | Sample STD Range / "below LOQ" floor |
+| LOQ (Ct) | STD6 `Ct Mean` | NTC / NEC pass check |
+| STD Range | `[STD6 Back-Calc Mean, STD1 Back-Calc Mean]` | Sample STD Range check |
 
-Two tables: *Final Sample Results by Dilution* (every dilution) and *Final Sample Results — Averaged per Sample* (averaged across passing dilutions only; samples with none are excluded and listed separately). `Sample #` (e.g. `S1`) is used internally to group dilutions into the averaged table but isn't itself displayed in the by-dilution table — `Sample` (e.g. `S1 D1`) already carries that information.
+**NTC / NEC** — both pass per well if Ct is `Undetermined` **or** `Ct ≥ LOQ_Ct` (STD6's own measured Ct Mean above).
 
-**LOQ Status** (by-dilution table): whether a dilution's `Quantity Mean` is reliably quantifiable — `Above` (quantifiable), `Below` (under the LOQ, low confidence), or `Undetermined` (no signal detected).
+**Sample Suitability** — evaluated in this order, since each step feeds the next:
 
-**Triplicate single-outlier exclusion**: if a full 3-well Quantity %CV fails 25%, `resolve_sample_replicates()` (`Scripts/qpcr.py`) drops the outlier well and re-checks the remaining 2; if they pass, that pair's mean replaces the dilution's Quantity %CV / Quantity Mean / Total DNA / DNA per Protein ("Replicates Used: 2") instead of a fail. Only triggers on an already-failing triplicate — passing ones keep the instrument's reported figures as-is.
+1. **Triplicate single-outlier exclusion**: if a dilution's full 3-well Quantity %CV fails 25%, `resolve_sample_replicates()` (`Scripts/qpcr.py`) drops the outlier well and re-checks the remaining 2; if they pass, that pair's mean becomes the dilution's Quantity %CV / Quantity Mean / Total DNA / DNA per Protein ("Replicates Used: 2") instead of an outright fail. Only triggers on an already-failing triplicate — passing ones keep the instrument's reported figures as-is. Every check below uses this resolved `Quantity Mean`.
+2. **Quantity %CV**: `(Qty_SD / Qty_Mean) × 100` ≤ 25%.
+3. **STD Range**: the resolved `Quantity Mean` (pre-dilution-adjustment) must fall within the STD Range above; below it is `Out of Range` and *is* "below LOQ", above it is also `Out of Range`.
+4. **Dilutional Linearity**: `%Bias = (x₁ − x₂) / x₂ × 100` ≤ 20%, where `x₂` is the `Dilution Adjusted` quantity of the sample's own dilution with the lowest combined Ct %CV + Quantity %CV **among dilutions that already pass both step 2 and step 3**, and `x₁` is each dilution's `Dilution Adjusted` quantity. A sample with no dilution passing steps 2–3 has no valid reference, so every one of its dilutions gets `N/A`.
+5. **Combined Suitability**: `Pass` only if steps 2–4 all pass; otherwise `Fail` (binary — no `N/A`, since an uninterpretable dilution isn't a soft middle ground). Only `Pass` dilutions get averaged into the final result.
+
+Two tables: *Final Sample Results by Dilution* and *Final Sample Results — Averaged per Sample* (every sample is still reported, even one with zero passing dilutions — averaged across its passing dilutions if any exist, otherwise across all of them as a flagged fallback). In the averaged table: red highlight = the sample failed acceptance criteria (takes priority), green highlight = passed **and** `DNA per Protein` is below `SAMPLE_DNA_PER_PROTEIN_LIMIT` (15 ng/mg), gray + asterisk = the averaged `Quantity Mean` is below the LOQ (low confidence, footnoted). `Sample #` (e.g. `S1`) groups dilutions into the averaged table but isn't itself displayed in the by-dilution table — `Sample` (e.g. `S1 D1`) already carries that information.
 
 ## Criteria Verification
 
@@ -189,7 +186,18 @@ python -m venv .venv
 ```
 Opens at `http://localhost:8501` — only reachable while that command is still running in a terminal; closing it (or restarting your computer) stops the app until you run it again.
 
+## Running Tests
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -r app\requirements.txt -r tests\requirements.txt
+.venv\Scripts\pytest tests -v
+```
+Two suites, both under `tests/`:
+- `test_qpcr.py` — unit tests for every pure function in `Scripts/qpcr.py`, independent of any data file.
+- `test_app_golden.py` — runs the real `app/app.py` (headlessly, via a fake `streamlit` module in `tests/streamlit_stub.py`) against each file in `Data/` and checks `final_results`/`reportable_results` against known-good values, so a future change that silently shifts a Sample Suitability result gets caught automatically. `Data/*.xls`/`.xlsx` are real (scrubbed) company data and aren't committed to the repo (see Data Privacy below and git history), so these tests **skip**, not fail, wherever those files aren't present — a fresh clone or CI run will show them skipped, which is expected.
+
 ## Backlog — Recommended Cleanup
 
 - [ ] Notebook outputs (styled tables, the `klib` plot) are committed inline, which makes diffs large. Consider `nbstripout` or committing a rendered HTML export alongside a stripped notebook.
-- [ ] `Scripts/qpcr.py` / `Scripts/plotting.py` now hold the shared, self-contained logic (`style_table`, `classify_sample`, `recovery_bounds`, `combined_suitability`, the LOQ/LOD sigma-Ct formula, and the Dilutional Linearity %Bias calculation) that both the notebook and `app.py` import. Deliberately left duplicated: the parsing/cleaning steps and suitability-table assembly, since the notebook keeps those inline, cell-by-cell, on purpose — that step-by-step visibility is Phase I's whole point (see Road Map). Worth revisiting only if that tradeoff stops being worth it.
+- [ ] `Scripts/qpcr.py` / `Scripts/plotting.py` now hold the shared, self-contained logic (`style_table`, `classify_sample`, `recovery_bounds`, `combined_suitability`, the LOD sigma-Ct formula, the single-outlier triplicate resolution (`resolve_sample_replicates`), the Dilutional Linearity %Bias calculation, the Sample LOQ/STD Range derivation, STD Range suitability, and the averaged-results fallback aggregation) that both the notebook and `app.py` import. Deliberately left duplicated: the parsing/cleaning steps and suitability-table assembly, since the notebook keeps those inline, cell-by-cell, on purpose — that step-by-step visibility is Phase I's whole point (see Road Map). Worth revisiting only if that tradeoff stops being worth it.

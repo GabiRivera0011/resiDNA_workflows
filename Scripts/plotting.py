@@ -7,10 +7,17 @@ def format_value(value, precision):
     """Render a single cell value as a display string: NaN -> em dash, numeric ->
     fixed precision, everything else -> str(). Shared with app.py's PDF builder so
     on-screen and PDF numbers always agree.
+
+    `precision=None` means show the value as-is — the instrument's own reported
+    figure, unrounded — rather than forcing a fixed decimal count. Used for
+    pass-through instrument values (Quantity Mean, Back-Calc Mean, Total DNA, ...);
+    genuinely computed values (e.g. % Bias) still want an explicit precision.
     """
     if pd.isna(value):
         return "—"
     if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if precision is None:
+            return str(value)
         return f"{value:.{precision}f}"
     return str(value)
 
@@ -51,15 +58,26 @@ def style_table(data, caption="", hide_index=True, precision=2, align="center",
     places. Deliberately no opacity here — it dims the whole cell, including
     any highlight_rows background-color underneath it, washing out the color
     instead of just de-emphasizing the text.
+
+    `highlight_rows` is either a single boolean Series (paired with
+    `highlight_color`, as before) or a list of (mask, color) tuples for
+    multi-condition row highlighting — later entries win where masks overlap,
+    so list the lower-priority condition first (e.g. green for a passing but
+    low-value row, then red for a failed row, so a failed row is always red
+    even if it would otherwise also match the green condition).
     """
     formatted = format_df_for_display(data, precision=precision, precision_overrides=precision_overrides)
     styler = formatted.style.set_caption(caption)
 
     if highlight_rows is not None:
+        highlight_specs = highlight_rows if isinstance(highlight_rows, list) else [(highlight_rows, highlight_color)]
+
         def _highlight(row):
-            if highlight_rows.loc[row.name]:
-                return [f"background-color: {highlight_color} !important"] * len(row)
-            return [""] * len(row)
+            styles = [""] * len(row)
+            for mask, color in highlight_specs:
+                if mask.loc[row.name]:
+                    styles = [f"background-color: {color} !important"] * len(row)
+            return styles
         styler = styler.apply(_highlight, axis=1)
 
     if dim_mask is not None:

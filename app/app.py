@@ -11,25 +11,23 @@ import klib
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Scripts"))
 
 from qpcr import (
-    classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct,
-    compute_dilutional_linearity, resolve_sample_replicates,
+    classify_sample, recovery_bounds, combined_suitability,
+    compute_dilutional_linearity, resolve_sample_replicates, compute_loq_and_range,
+    compute_range_suitability, aggregate_sample_results,
 )
-from plotting import style_table, format_df_for_display
+from plotting import style_table, format_df_for_display, format_value
 
 # Must be the very first Streamlit command — widens the page from the default
 # centered ~730px column to the full browser width, so wide tables (like Sample
 # Suitability, with 11 columns) fit without horizontal scrolling
-st.set_page_config(page_title="Residual DNA QC Tool", layout="wide")
+st.set_page_config(page_title="Residual DNA Sample Analysis Tool", layout="wide")
 
-st.title("Residual DNA QC Tool")
+st.title("Residual DNA Sample Analysis Tool")
 
 
 FINAL_RESULTS_PRECISION = {
-    "Total DNA (ng/mL)": 4,
-    "Protein Concentration (mg/mL)": 4,
-    "DNA per Protein (ng/mg)": 4,
-    "Quantity Mean": 4,
     "Replicates Used": 0,
+    "Linearity %Bias": 2,
 }
 
 
@@ -94,6 +92,7 @@ if uploaded_file is not None:
         "quantity_percent_cv": "Quantity %CV", "ct_cv_percent": "Ct CV%",
         "percent_recovery": "% Recovery",
         "back_calculation_percent_difference_mean": "Back Calculation % difference Mean",
+        "back_calculation_mean": "Back Calculation Mean",
         "dilution_adjusted": "Dilution Adjusted", "dilution_factor": "Dilution Factor",
         "total_dna_per_ml": "Total DNA per mL", "protein_concentration": "Protein Concentration",
         "total_dna_per_protein_concentration": "Total DNA per Protein Concentration",
@@ -117,7 +116,10 @@ if uploaded_file is not None:
         )
         st.stop()
 
-    df = klib.data_cleaning(df, col_exclude=_columns_required_downstream)
+    # convert_dtypes=False: klib's default float32 downcast otherwise reintroduces
+    # precision noise (e.g. 0.003 -> 0.003000000026077032) once display values are
+    # shown at instrument sigfig instead of being rounded off (see format_value below).
+    df = klib.data_cleaning(df, col_exclude=_columns_required_downstream, convert_dtypes=False)
     df["ct"] = df["ct"].replace("Undetermined", pd.NA)
     df["ct"] = pd.to_numeric(df["ct"])
     parsed_df = df.copy()
@@ -161,8 +163,6 @@ if uploaded_file is not None:
     PC_RECOVERY_MAX = 125.0
     ERC_RECOVERY_MIN = 50.0
     ERC_RECOVERY_MAX = 150.0
-    LOD_SIGMA_MULTIPLIER = 3.3
-    LOQ_SIGMA_MULTIPLIER = 10.0
     SAMPLE_QTY_CV_MAX = 25.0
     SAMPLE_LINEARITY_BIAS_MAX = 20
     SAMPLE_DNA_PER_PROTEIN_LIMIT = 15.0
@@ -174,25 +174,36 @@ if uploaded_file is not None:
     curve_intercept = reg_stats["y-Intercept"]
     curve_efficiency = reg_stats["Efficiency"]
     curve_std_error = reg_stats["Std error"]
-    loq_ct = compute_sigma_ct(curve_std_error, curve_slope, curve_intercept, LOQ_SIGMA_MULTIPLIER)
-    # Standard curve is Ct = slope * log10(Quantity) + intercept, so inverting it at
-    # loq_ct converts the LOQ from Ct space back to the same Quantity units the
-    # standard curve (and every sample's Quantity Mean) is expressed in.
-    loq_quantity = 10 ** ((loq_ct - curve_intercept) / curve_slope)
 
     # --- STD Curve Point suitability (silent) ---
     std_suitability = (
         ref_std_df.groupby("sample_name", as_index=False)
         .agg(**{
             "Quantity": ("quantity", "first"),
+            "Ct Mean": ("ct_mean", "first"),
             "Ct %CV": ("ct_cv_percent", "first"),
             "Back-Calc %Bias": ("back_calculation_percent_difference_mean", "first"),
+            "Back-Calc Mean": ("back_calculation_mean", "first"),
         })
         .sort_values("Quantity")
         .reset_index(drop=True)
     )
     std_suitability["Ct %CV Pass"] = std_suitability["Ct %CV"] <= STD_CT_CV_MAX
     std_suitability["Back-Calc Pass"] = std_suitability["Back-Calc %Bias"].abs() <= STD_BACK_CALC_BIAS_MAX
+
+    # --- Sample LOQ / STD Range (silent) — derived from the standard curve's own
+    # back-calculated values at its highest (STD1) and lowest (STD6) calibrated
+    # points, replacing the old ICH sigma-in-Ct-space LOQ formula.
+    # compute_loq_and_range() (Scripts/qpcr.py) does the derivation, shared
+    # with the notebook so both stay in sync.
+    _loq_range = compute_loq_and_range(std_suitability)
+    std1_backcalc_mean = _loq_range["std1_backcalc_mean"]
+    std6_backcalc_mean = _loq_range["std6_backcalc_mean"]
+    # STD6's own back-calculated concentration is now the sample LOQ.
+    loq_quantity = _loq_range["loq_quantity"]
+    # NTC/NEC typically don't report a Quantity at all, so their check (below)
+    # stays in Ct space, anchored to STD6's own measured Ct Mean.
+    loq_ct = _loq_range["loq_ct"]
 
     # --- ERC / PC suitability (silent) ---
     control_suitability = (
@@ -279,14 +290,6 @@ if uploaded_file is not None:
             "Status": "Pass" if row["Pass"] else "Fail",
         })
 
-    # --- Sample %CV suitability (silent) ---
-    sample_cv = (
-        samples_df.groupby("sample_name", as_index=False)
-        .agg(**{"Quantity %CV": ("quantity_percent_cv", "first")})
-        .sort_values("sample_name")
-        .reset_index(drop=True)
-    )
-
     # --- Triplicate resolution: single-outlier exclusion when a dilution's full
     # 3-well Quantity %CV fails SAMPLE_QTY_CV_MAX (silent) ---
     unspiked_samples = samples_df[~samples_df["sample_name"].str.endswith(" S")].copy()
@@ -295,12 +298,51 @@ if uploaded_file is not None:
         "base_sample", "sample_name", "ct_cv_percent", "dilution_factor", "protein_concentration",
     ]]
 
-    # --- Dilutional Linearity suitability (silent) ---
+    # --- Sample %CV suitability (silent) — spiked (" S") rows aren't part of the
+    # averaging pipeline, so their %CV is left as the instrument reported it;
+    # unspiked rows use the outlier-resolved %CV from resolved_replicates above.
+    spiked_cv = (
+        samples_df[samples_df["sample_name"].str.endswith(" S")]
+        .groupby("sample_name", as_index=False)
+        .agg(**{"Quantity %CV": ("quantity_percent_cv", "first")})
+    )
+    unspiked_cv = resolved_replicates.rename(columns={"quantity_percent_cv": "Quantity %CV"})[
+        ["sample_name", "Quantity %CV"]
+    ]
+    sample_cv = (
+        pd.concat([spiked_cv, unspiked_cv], ignore_index=True)
+        .sort_values("sample_name")
+        .reset_index(drop=True)
+    )
+    sample_cv["Pass"] = (sample_cv["Quantity %CV"] <= SAMPLE_QTY_CV_MAX).astype(object)
+    # Below-LOQ / non-amplifying replicates have no %CV to evaluate — N/A, not a fail
+    sample_cv.loc[sample_cv["Quantity %CV"].isna(), "Pass"] = pd.NA
+
+    # --- Sample STD Range suitability (silent) — compares each dilution's raw
+    # (pre-dilution-adjustment) triplicate Quantity Mean, after single-outlier
+    # assessment, against the standard curve's own calibrated range
+    # [std6_backcalc_mean, std1_backcalc_mean]. Below std6_backcalc_mean is the
+    # definition of "below LOQ"; above std1_backcalc_mean is above the curve's
+    # highest calibrated point. compute_range_suitability() (Scripts/qpcr.py)
+    # does the actual comparison, shared with the notebook so both stay in sync.
+    range_df = compute_range_suitability(
+        unspiked_samples, resolved_replicates, std6_backcalc_mean, std1_backcalc_mean
+    )
+
+    # --- Dilutional Linearity suitability (silent) — the reference dilution for
+    # each sample is restricted to dilutions that already pass both Quantity %CV
+    # and STD Range, so the comparison isn't anchored to an unreliable point.
     unspiked_dilutions = unspiked_dilution_info.merge(
         resolved_replicates[["sample_name", "quantity_percent_cv", "dilution_adjusted"]],
         on="sample_name",
     )
-    linearity_df = compute_dilutional_linearity(unspiked_dilutions, SAMPLE_LINEARITY_BIAS_MAX)
+    _cv_pass_by_sample = sample_cv.set_index("sample_name")["Pass"]
+    _range_pass_by_sample = range_df.set_index("sample_name")["Pass"]
+    eligible_mask = (
+        unspiked_dilutions["sample_name"].map(_cv_pass_by_sample).fillna(False).astype(bool)
+        & unspiked_dilutions["sample_name"].map(_range_pass_by_sample).fillna(False).astype(bool)
+    )
+    linearity_df = compute_dilutional_linearity(unspiked_dilutions, SAMPLE_LINEARITY_BIAS_MAX, eligible_mask)
     linearity_df = linearity_df.rename(columns={"sample_name": "Sample"})
 
     # --- Final Sample Results by Dilution (silent build) ---
@@ -330,23 +372,38 @@ if uploaded_file is not None:
     )
     final_results = final_results.drop(columns="Pass")
 
+    # Bring in each dilution's STD Range verdict. Pass/Fail/N/A wording here for
+    # consistency with its sibling suitability columns.
+    range_suitability_col = f"STD Range Suitability ({std6_backcalc_mean}–{std1_backcalc_mean})"
+    final_results = final_results.merge(
+        range_df[["sample_name", "Range Status"]].rename(columns={"sample_name": "Sample"}),
+        on="Sample",
+        how="left",
+    )
+    final_results[range_suitability_col] = final_results["Range Status"].map(
+        {"In Range": "Pass", "Out of Range": "Fail", "Undetermined": "N/A"}
+    )
+    final_results = final_results.drop(columns="Range Status")
+
+    # A dilution is only reportable/averageable once it cleanly passes all three
+    # checks — STD Range GATES averaging (an Out of Range dilution, including
+    # anything below the LOQ, is excluded rather than merely flagged).
     final_results["Suitability"] = final_results.apply(
-        lambda row: combined_suitability([row["Quantity %CV Suitability"], row["Linearity Suitability"]]),
+        lambda row: combined_suitability([
+            row["Quantity %CV Suitability"], row[range_suitability_col], row["Linearity Suitability"],
+        ]),
         axis=1,
     )
-    # Per-dilution (not averaged) Quantity Mean vs. the standard curve's LOQ
-    # threshold — same comparison as the averaged table's footnote, but shown as
-    # its own column here since every row is already a single dilution/well group.
-    loq_qty_status_col = f"LOQ Status (LOQ conc = {loq_quantity:.4f})"
-    final_results[loq_qty_status_col] = final_results["Quantity Mean"].apply(
-        lambda q: "Undetermined" if pd.isna(q) else ("Below" if q < loq_quantity else "Above")
-    )
+    # No quantity to assess (Undetermined) is still uninterpretable, not a soft
+    # middle ground — the reported Suitability verdict is binary, Pass or Fail only.
+    final_results["Suitability"] = final_results["Suitability"].replace("N/A", "Fail")
+
     # "Sample #" is kept here (not in the column list below) because
     # reportable_results still groups by it further down — it's dropped only from
     # the display/PDF copies right before rendering, since "Sample" (e.g. "S1 D1")
     # already carries the same information for a human reader.
     final_results = final_results.rename(columns={"Base Sample": "Sample #"})[[
-        "Sample #", "Sample", "Dilution Factor", "Quantity Mean", loq_qty_status_col,
+        "Sample #", "Sample", "Dilution Factor", "Quantity Mean", range_suitability_col,
         "Quantity %CV", "Replicates Used", "Quantity %CV Suitability",
         "Linearity %Bias", "Linearity Suitability",
         "Total DNA (ng/mL)", "Protein Concentration (mg/mL)", "DNA per Protein (ng/mg)",
@@ -370,30 +427,22 @@ if uploaded_file is not None:
             sample_display_names[base] = st.text_input(f"{base} — Sample Name", key=f"sample_name_{base}")
 
     # --- Final Sample Results — Averaged per Sample (silent build) ---
-    reportable_results = (
-        final_results[final_results["Suitability"] == "Pass"]
-        .groupby("Sample #")
-        .agg(**{
-            "Total DNA (ng/mL)": ("Total DNA (ng/mL)", "mean"),
-            "Protein Concentration (mg/mL)": ("Protein Concentration (mg/mL)", "first"),
-            "DNA per Protein (ng/mg)": ("DNA per Protein (ng/mg)", "mean"),
-            "Quantity Mean": ("Quantity Mean", "mean"),
-            "Dilutions Averaged": ("Sample", lambda s: f"{', '.join(sorted(s))} (n={len(s)})"),
-        })
-        .reset_index()
-    )
-    reportable_results.insert(1, "Sample ID", reportable_results["Sample #"].map(sample_id_map))
-    reportable_results.insert(2, "Sample Name", reportable_results["Sample #"].map(sample_display_names))
-
-    _status_col = f"≤ {SAMPLE_DNA_PER_PROTEIN_LIMIT:.0f} ng/mg Status"
-    reportable_results[_status_col] = reportable_results["DNA per Protein (ng/mg)"].apply(
-        lambda v: "N/A" if pd.isna(v) else ("Below" if v < SAMPLE_DNA_PER_PROTEIN_LIMIT else "Above")
+    # aggregate_sample_results() (Scripts/qpcr.py) averages each sample's
+    # suitability-passing dilutions into a single Total DNA / DNA per Protein
+    # result. A sample with zero passing dilutions (e.g. every dilution was Out
+    # of Range or Undetermined) is still reported — averaged from ALL its
+    # dilutions instead, since a flagged number is more useful than no row at
+    # all — but gets a red highlight (via Sample Passed below) making clear it
+    # failed acceptance criteria and shouldn't be trusted the way a passing row
+    # is. Shared with the notebook so both stay in sync.
+    reportable_results, _status_col = aggregate_sample_results(
+        final_results, sample_id_map, sample_display_names, SAMPLE_DNA_PER_PROTEIN_LIMIT
     )
 
-    # Rows whose Quantity Mean (averaged across the same passing dilutions as the
-    # rest of the row) doesn't clear the standard curve's LOQ threshold — or had
-    # no quantity at all (every replicate used was Undetermined) — get Total DNA
-    # / DNA per Protein flagged low-confidence instead of a separate status
+    # Rows whose Quantity Mean (averaged across the same dilutions as the rest of
+    # the row) doesn't clear the standard curve's LOQ threshold — or had no
+    # quantity at all (every replicate used was Undetermined) — get Total DNA /
+    # DNA per Protein flagged low-confidence instead of a separate status
     # column: grayed out via dim_mask (real CSS, see style_table()'s docstring)
     # with a trailing "*" on the value. Computed after _status_col above since
     # the asterisk-appended strings below couldn't survive a numeric comparison.
@@ -405,20 +454,25 @@ if uploaded_file is not None:
     LOQ_FOOTNOTE_TEXT = (
         "Values marked with an asterisk (*) were calculated from a sample "
         f"concentration (Quantity) below the assay's limit of quantification "
-        f"(LOQ = {loq_quantity:.4f}), or from replicates with no detectable signal. "
+        f"(LOQ = {loq_quantity} pg/uL), or from replicates with no detectable signal. "
         "Treat these results as low confidence."
     )
     _loq_footnote_cols = ["Total DNA (ng/mL)", "DNA per Protein (ng/mg)"]
+    # Unlike the by-dilution table (where these are pass-through instrument
+    # figures), here they're genuinely computed means across a sample's passing
+    # dilutions — natural/instrument sigfig would surface raw float averaging
+    # noise (e.g. 24471.731166666665), so this table gets an explicit precision.
+    _AVERAGED_PRECISION = {"Total DNA (ng/mL)": 4, "DNA per Protein (ng/mg)": 4}
 
     # st.table() renders cell values as plain text (see style_table()'s dim_mask
     # docstring in Scripts/plotting.py), so the marker here is a literal trailing
     # "*" rather than a raised superscript — dim_mask (real CSS) grays out the
     # whole value instead.
-    reportable_results_display = reportable_results.copy()
+    reportable_results_display = reportable_results.drop(columns="Sample Passed").copy()
     for _col in _loq_footnote_cols:
-        _precision = FINAL_RESULTS_PRECISION[_col]
+        _precision = _AVERAGED_PRECISION.get(_col)
         reportable_results_display[_col] = [
-            "—" if pd.isna(v) else f"{v:.{_precision}f}{'*' if flagged else ''}"
+            "—" if pd.isna(v) else f"{format_value(v, _precision)}{'*' if flagged else ''}"
             for v, flagged in zip(reportable_results[_col], _below_loq_mask)
         ]
     loq_dim_mask = pd.DataFrame(
@@ -431,11 +485,11 @@ if uploaded_file is not None:
         <font>/<super> rather than dim_mask + a trailing "*"."""
         data = data.copy()
         for col in _loq_footnote_cols:
-            precision = FINAL_RESULTS_PRECISION[col]
+            precision = _AVERAGED_PRECISION.get(col)
             data[col] = [
                 "—" if pd.isna(v) else (
-                    f'<font color="#999999">{v:.{precision}f}<super>*</super></font>'
-                    if flagged else f"{v:.{precision}f}"
+                    f'<font color="#999999">{format_value(v, precision)}<super>*</super></font>'
+                    if flagged else format_value(v, precision)
                 )
                 for v, flagged in zip(data[col], _below_loq_mask)
             ]
@@ -471,15 +525,24 @@ if uploaded_file is not None:
         ))
 
     st.header("Sample Suitability")
-    st.table(style_table(final_results.drop(columns="Sample #"), caption="Sample Results by Dilution",
-                          align="left", precision_overrides=FINAL_RESULTS_PRECISION))
+    st.table(style_table(
+        final_results.drop(columns="Sample #"), caption="Final Sample Results by Dilution",
+        align="left", precision=None, precision_overrides=FINAL_RESULTS_PRECISION,
+        highlight_rows=final_results["Suitability"] == "Fail", highlight_color="#F8D7DA",
+    ))
 
     st.header("Final Sample Results")
     st.table(style_table(
         reportable_results_display,
-        caption="Final Sample Results", align="left",
-        precision_overrides=FINAL_RESULTS_PRECISION,
-        highlight_rows=reportable_results[_status_col] == "Below", highlight_color="#D4EDDA",
+        caption=(
+            "Final Sample Results — Averaged Across Passing Dilutions — green: below "
+            f"{SAMPLE_DNA_PER_PROTEIN_LIMIT:.0f} ng/mg, red: failed acceptance criteria"
+        ),
+        align="left", precision=None, precision_overrides=FINAL_RESULTS_PRECISION,
+        highlight_rows=[
+            (reportable_results[_status_col] == "Below", "#D4EDDA"),
+            (~reportable_results["Sample Passed"], "#F8D7DA"),
+        ],
         dim_mask=loq_dim_mask,
     ))
     if loq_footnote_used:
@@ -719,10 +782,18 @@ if uploaded_file is not None:
         for row_idx in range(1, len(body_rows) + 1):
             if row_idx % 2 == 0:
                 style.append(("BACKGROUND", (0, row_idx), (-1, row_idx), REPORT_ALT_ROW_COLOR))
+        # highlight_mask is either a single boolean iterable (paired with
+        # highlight_color) or a list of (mask, color) tuples for multi-condition
+        # row highlighting — later entries win where masks overlap, mirroring
+        # style_table()'s own highlight_rows in Scripts/plotting.py.
         if highlight_mask is not None:
-            for i, flag in enumerate(highlight_mask, start=1):
-                if flag:
-                    style.append(("BACKGROUND", (0, i), (-1, i), highlight_color))
+            highlight_specs = (
+                highlight_mask if isinstance(highlight_mask, list) else [(highlight_mask, highlight_color)]
+            )
+            for mask, color in highlight_specs:
+                for i, flag in enumerate(mask, start=1):
+                    if flag:
+                        style.append(("BACKGROUND", (0, i), (-1, i), color))
         table.setStyle(TableStyle(style))
         return table
 
@@ -783,18 +854,24 @@ if uploaded_file is not None:
         pdf_story.append(_pdf_table(format_df_for_display(_ntc_nec_df), highlight_mask=_ntc_nec_df["Status"] == "Fail"))
 
     pdf_story.append(Paragraph("Sample Suitability", _section_style))
-    pdf_story.append(_pdf_table(format_df_for_display(
-        final_results.drop(columns="Sample #"), precision_overrides=FINAL_RESULTS_PRECISION,
-    )))
+    pdf_story.append(_pdf_table(
+        format_df_for_display(
+            final_results.drop(columns="Sample #"),
+            precision=None, precision_overrides=FINAL_RESULTS_PRECISION,
+        ),
+        highlight_mask=final_results["Suitability"] == "Fail",
+    ))
 
     pdf_story.append(Paragraph("Final Sample Results", _section_style))
     pdf_story.append(_pdf_table(
         format_df_for_display(
-            _apply_pdf_loq_footnote(reportable_results),
-            precision_overrides=FINAL_RESULTS_PRECISION,
+            _apply_pdf_loq_footnote(reportable_results.drop(columns="Sample Passed")),
+            precision=None, precision_overrides=FINAL_RESULTS_PRECISION,
         ),
-        highlight_mask=reportable_results[_status_col] == "Below",
-        highlight_color=REPORT_PASS_COLOR,
+        highlight_mask=[
+            (reportable_results[_status_col] == "Below", REPORT_PASS_COLOR),
+            (~reportable_results["Sample Passed"], REPORT_FAIL_COLOR),
+        ],
     ))
     if loq_footnote_used:
         pdf_story.append(Paragraph(LOQ_FOOTNOTE_TEXT, _footnote_style))
