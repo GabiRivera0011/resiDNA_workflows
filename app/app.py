@@ -234,7 +234,13 @@ if uploaded_file is not None:
     )
     negative_control_summary = (
         negative_controls_df.groupby(["control_type", "sample_name"], as_index=False)
-        .agg(**{"Wells Passing": ("well_pass", "sum"), "Total Wells": ("well_pass", "size")})
+        .agg(**{
+            "Wells Passing": ("well_pass", "sum"),
+            "Total Wells": ("well_pass", "size"),
+            # Each well's own Ct, shown alongside LOQ Ct below so a Fail is
+            # traceable to the actual measured value that drove it.
+            "Ct": ("ct", lambda s: ", ".join("Undetermined" if pd.isna(v) else str(v) for v in s)),
+        })
     )
     negative_control_summary["Pass"] = (
         negative_control_summary["Wells Passing"] == negative_control_summary["Total Wells"]
@@ -285,8 +291,8 @@ if uploaded_file is not None:
     for _, row in negative_control_summary.iterrows():
         ntc_nec_rows.append({
             "Item": f"{row['Sample']} ({row['Control Type']})",
-            "Criteria": "Undetermined, or Ct ≥ LOQ Ct",
-            "Value": f"{row['Wells Passing']}/{row['Total Wells']}",
+            "Criteria": f"Undetermined, or Ct ≥ {loq_ct}",
+            "Value": f"{row['Ct']} ({row['Wells Passing']}/{row['Total Wells']} passing)",
             "Status": "Pass" if row["Pass"] else "Fail",
         })
 

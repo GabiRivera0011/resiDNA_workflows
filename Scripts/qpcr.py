@@ -155,13 +155,21 @@ def resolve_sample_replicates(samples_df, cv_max):
             pairs = [mean_sd_cv(quantities[:i] + quantities[i + 1:]) for i in range(3)]
             best_mean, _, best_cv = min(pairs, key=lambda t: t[2])
             if pd.notna(best_cv) and best_cv <= cv_max:
-                quantity_mean = best_mean
-                dilution_adjusted = best_mean * dilution_factor
+                # Unlike the passthrough case above, these are genuinely computed
+                # here (not instrument-reported) — round to the same precision the
+                # instrument itself uses for these fields (4 decimals for
+                # Quantity/Total DNA/DNA per Protein, 2 for %CV), so a rescued
+                # dilution's display doesn't leak raw division noise (e.g.
+                # dilution_adjusted / protein_concentration producing something
+                # like 2.857142857142857) once display shows natural/instrument
+                # sigfig instead of forcing its own rounding.
+                quantity_mean = round(best_mean, 4)
+                dilution_adjusted = round(best_mean * dilution_factor, 4)
                 total_dna_per_ml = dilution_adjusted
                 total_dna_per_protein = (
-                    dilution_adjusted / protein_concentration if protein_concentration else float("nan")
+                    round(dilution_adjusted / protein_concentration, 4) if protein_concentration else float("nan")
                 )
-                cv, replicates_used = best_cv, 2
+                cv, replicates_used = round(best_cv, 2), 2
 
         rows.append({
             "sample_name": sample_name,
