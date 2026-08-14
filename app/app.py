@@ -237,9 +237,13 @@ if uploaded_file is not None:
         .agg(**{
             "Wells Passing": ("well_pass", "sum"),
             "Total Wells": ("well_pass", "size"),
-            # Each well's own Ct, shown alongside LOQ Ct below so a Fail is
-            # traceable to the actual measured value that drove it.
-            "Ct": ("ct", lambda s: ", ".join("Undetermined" if pd.isna(v) else str(v) for v in s)),
+            # Mean Ct across the group's wells (Undetermined wells excluded via
+            # pandas' default NaN-skipping mean; "Undetermined" only if every
+            # well was), shown alongside LOQ Ct below so a Fail is traceable to
+            # the value that drove it. Rounded here (4dp, matching the
+            # instrument's own Ct precision) since — unlike most fields in this
+            # pipeline — this mean is genuinely computed, not instrument-reported.
+            "Ct": ("ct", lambda s: "Undetermined" if s.isna().all() else round(s.mean(), 4)),
         })
     )
     negative_control_summary["Pass"] = (
@@ -292,7 +296,9 @@ if uploaded_file is not None:
         ntc_nec_rows.append({
             "Item": f"{row['Sample']} ({row['Control Type']})",
             "Criteria": f"Undetermined, or Ct ≥ {loq_ct}",
-            "Value": f"{row['Ct']} ({row['Wells Passing']}/{row['Total Wells']} passing)",
+            # str(), not style_table()'s own numeric formatting (which would
+            # default to 2dp here) — row["Ct"] is already rounded upstream.
+            "Mean Ct": str(row["Ct"]),
             "Status": "Pass" if row["Pass"] else "Fail",
         })
 
