@@ -10,7 +10,7 @@ import pytest
 from qpcr import (
     classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct,
     compute_loq_and_range, resolve_sample_replicates, compute_range_suitability,
-    compute_dilutional_linearity, aggregate_sample_results,
+    compute_dilutional_linearity, aggregate_sample_results, compute_sample_status,
 )
 
 
@@ -255,3 +255,94 @@ def test_aggregate_sample_results_fallback_averages_all_when_none_pass():
     assert row["Total DNA (ng/mL)"] == pytest.approx(15.0)  # fallback: mean of ALL rows
     assert row["Sample Passed"] == False  # noqa: E712
     assert row["Dilutions Averaged"] == "S1 D1, S1 D2 (n=2)"
+
+
+# --- compute_sample_status ----------------------------------------------------
+
+RANGE_COL = "STD Range Suitability (0.003–300.0)"
+STD6, STD1 = 0.003, 300.0
+
+
+def _dilution_row(
+    sample_no="S1", suitability="Fail", qty_cv="Pass", linearity="Pass",
+    range_suit="Pass", quantity_mean=1.0,
+):
+    return {
+        "Sample #": sample_no,
+        "Suitability": suitability,
+        "Quantity %CV Suitability": qty_cv,
+        "Linearity Suitability": linearity,
+        RANGE_COL: range_suit,
+        "Quantity Mean": quantity_mean,
+    }
+
+
+def test_compute_sample_status_reportable_when_a_dilution_fully_passes():
+    final_results = pd.DataFrame([
+        _dilution_row(suitability="Fail", range_suit="Fail", quantity_mean=0.001),
+        _dilution_row(suitability="Pass", range_suit="Pass", quantity_mean=5.0),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "Reportable"
+
+
+def test_compute_sample_status_loq_spike_test_below_std6():
+    final_results = pd.DataFrame([
+        _dilution_row(qty_cv="Pass", linearity="Pass", range_suit="Fail", quantity_mean=0.001),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "LOQ - Spike Test"
+
+
+def test_compute_sample_status_uloq_adjust_dilution_above_std1():
+    final_results = pd.DataFrame([
+        _dilution_row(qty_cv="Pass", linearity="Pass", range_suit="Fail", quantity_mean=350.0),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "ULOQ - Adjust Dilution"
+
+
+def test_compute_sample_status_retest_when_range_passes_but_other_check_fails():
+    final_results = pd.DataFrame([
+        _dilution_row(qty_cv="Fail", linearity="Pass", range_suit="Pass", quantity_mean=5.0),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "Retest"
+
+
+def test_compute_sample_status_retest_when_multiple_checks_fail_together():
+    # Range fails AND Quantity %CV fails — not a clean LOQ/ULOQ story, so Retest
+    final_results = pd.DataFrame([
+        _dilution_row(qty_cv="Fail", linearity="Pass", range_suit="Fail", quantity_mean=0.001),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "Retest"
+
+
+def test_compute_sample_status_linearity_na_is_non_blocking():
+    final_results = pd.DataFrame([
+        _dilution_row(qty_cv="Pass", linearity="N/A", range_suit="Fail", quantity_mean=0.001),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "LOQ - Spike Test"
+
+
+def test_compute_sample_status_best_dilution_wins_across_the_sample():
+    # D1 alone would be "Retest" (%CV fails); D2 alone would be "LOQ - Spike Test".
+    # The sample as a whole should report the more informative LOQ status.
+    final_results = pd.DataFrame([
+        _dilution_row(sample_no="S1", qty_cv="Fail", linearity="Pass", range_suit="Fail", quantity_mean=0.001),
+        _dilution_row(sample_no="S1", qty_cv="Pass", linearity="Pass", range_suit="Fail", quantity_mean=0.0015),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "LOQ - Spike Test"
+
+
+def test_compute_sample_status_per_sample_independent():
+    final_results = pd.DataFrame([
+        _dilution_row(sample_no="S1", suitability="Pass", range_suit="Pass", quantity_mean=5.0),
+        _dilution_row(sample_no="S2", qty_cv="Fail", linearity="Pass", range_suit="Pass", quantity_mean=5.0),
+    ])
+    status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
+    assert status["S1"] == "Reportable"
+    assert status["S2"] == "Retest"

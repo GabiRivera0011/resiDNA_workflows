@@ -315,3 +315,65 @@ def aggregate_sample_results(final_results, sample_id_map, sample_display_names,
         lambda v: "N/A" if pd.isna(v) else ("Below" if v < dna_per_protein_limit else "Above")
     )
     return reportable_results, status_col
+
+
+SAMPLE_STATUS_PRIORITY = ["Reportable", "LOQ - Spike Test", "ULOQ - Adjust Dilution", "Retest"]
+
+
+def _classify_dilution_status(row, range_suitability_col, std6_backcalc_mean, std1_backcalc_mean):
+    """One dilution's reporting status.
+
+    "Reportable" if the dilution fully passes (mirrors `Suitability`). Otherwise
+    "LOQ - Spike Test" / "ULOQ - Adjust Dilution" apply only when STD Range is
+    the SOLE failing check — Quantity %CV passes and Linearity is Pass or N/A
+    (N/A isn't a hard fail: per compute_dilutional_linearity, a dilution whose
+    own %CV+Range would otherwise pass never fails to get a reference, so N/A
+    here reflects the rest of the SAMPLE lacking one, not this dilution being
+    unreliable) — split by whether the failing Quantity Mean sits below STD6
+    (LOQ) or above STD1 (ULOQ). Anything else (STD Range itself passes but
+    another check fails, or multiple checks fail together) is "Retest".
+    """
+    if row["Suitability"] == "Pass":
+        return "Reportable"
+
+    only_range_fails = (
+        row[range_suitability_col] == "Fail"
+        and row["Quantity %CV Suitability"] == "Pass"
+        and row["Linearity Suitability"] in ("Pass", "N/A")
+    )
+    quantity_mean = row["Quantity Mean"]
+    if only_range_fails and pd.notna(quantity_mean):
+        if quantity_mean < std6_backcalc_mean:
+            return "LOQ - Spike Test"
+        if quantity_mean > std1_backcalc_mean:
+            return "ULOQ - Adjust Dilution"
+    return "Retest"
+
+
+def compute_sample_status(final_results, range_suitability_col, std6_backcalc_mean, std1_backcalc_mean):
+    """Per-sample reporting Status for the averaged Final Sample Results table:
+    "Reportable", "Retest", "ULOQ - Adjust Dilution", or "LOQ - Spike Test".
+
+    A sample can have multiple dilutions with different outcomes (e.g. one
+    dilution below LOQ, another failing Quantity %CV outright) — each dilution
+    is classified via `_classify_dilution_status`, and the sample reports
+    whichever status ranks best across its own dilutions (SAMPLE_STATUS_PRIORITY),
+    the same "any dilution passing is enough" rule `aggregate_sample_results`
+    already applies when deciding "Sample Passed".
+
+    `final_results` must have one row per dilution, with columns: Sample #,
+    Suitability, Quantity %CV Suitability, Linearity Suitability, Quantity Mean,
+    and `range_suitability_col` (the STD Range Suitability column — its exact
+    name embeds the STD6/STD1 bounds, so it's passed in rather than hardcoded).
+
+    Returns a Series indexed by Sample #.
+    """
+    dilution_status = final_results.apply(
+        lambda row: _classify_dilution_status(row, range_suitability_col, std6_backcalc_mean, std1_backcalc_mean),
+        axis=1,
+    )
+    return (
+        final_results.assign(_status=dilution_status)
+        .groupby("Sample #")["_status"]
+        .agg(lambda statuses: next(s for s in SAMPLE_STATUS_PRIORITY if s in set(statuses)))
+    )

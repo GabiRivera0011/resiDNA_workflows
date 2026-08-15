@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Scripts"))
 from qpcr import (
     classify_sample, recovery_bounds, combined_suitability,
     compute_dilutional_linearity, resolve_sample_replicates, compute_loq_and_range,
-    compute_range_suitability, aggregate_sample_results,
+    compute_range_suitability, aggregate_sample_results, compute_sample_status,
 )
 from plotting import style_table, format_df_for_display, format_value
 
@@ -451,20 +451,28 @@ if uploaded_file is not None:
         final_results, sample_id_map, sample_display_names, SAMPLE_DNA_PER_PROTEIN_LIMIT
     )
 
+    # Farthest-right "Next Step" column — what to do next with this sample,
+    # derived from the same per-dilution Suitability breakdown as the
+    # by-dilution table above (see compute_sample_status()'s docstring in
+    # Scripts/qpcr.py for the per-dilution rules and how multi-dilution
+    # samples are resolved). Assigned here (last) so it lands after every
+    # other column, including the ng/mg status column just added above.
+    reportable_results["Next Step"] = reportable_results["Sample #"].map(
+        compute_sample_status(final_results, range_suitability_col, std6_backcalc_mean, std1_backcalc_mean)
+    )
+
     # Rows whose Quantity Mean (averaged across the same dilutions as the rest of
     # the row) doesn't clear the standard curve's LOQ threshold — or had no
     # quantity at all (every replicate used was Undetermined) — get Total DNA /
     # DNA per Protein flagged low-confidence instead of a separate status
     # column: grayed out via dim_mask (real CSS, see style_table()'s docstring)
-    # with a trailing "*" on the value. Computed after _status_col above since
-    # the asterisk-appended strings below couldn't survive a numeric comparison.
+    # with a trailing " - LOQ" on the value. Computed after _status_col above
+    # since the suffixed strings below couldn't survive a numeric comparison.
     _below_loq_mask = reportable_results["Quantity Mean"].apply(lambda q: pd.isna(q) or q < loq_quantity)
     loq_footnote_used = bool(_below_loq_mask.any())
     reportable_results = reportable_results.drop(columns="Quantity Mean")
-    # Doesn't start with "* " — st.caption() renders this as Markdown, where a
-    # leading "* " is parsed as a bullet list item instead of a literal asterisk.
     LOQ_FOOTNOTE_TEXT = (
-        "Values marked with an asterisk (*) were calculated from a sample "
+        "Values marked \"- LOQ\" were calculated from a sample "
         f"concentration (Quantity) below the assay's limit of quantification "
         f"(LOQ = {loq_quantity} pg/uL), or from replicates with no detectable signal. "
         "Treat these results as low confidence."
@@ -478,13 +486,13 @@ if uploaded_file is not None:
 
     # st.table() renders cell values as plain text (see style_table()'s dim_mask
     # docstring in Scripts/plotting.py), so the marker here is a literal trailing
-    # "*" rather than a raised superscript — dim_mask (real CSS) grays out the
-    # whole value instead.
+    # " - LOQ" — dim_mask (real CSS) grays out the whole value (marker included)
+    # instead of relying on separate text styling.
     reportable_results_display = reportable_results.drop(columns="Sample Passed").copy()
     for _col in _loq_footnote_cols:
         _precision = _AVERAGED_PRECISION.get(_col)
         reportable_results_display[_col] = [
-            "—" if pd.isna(v) else f"{format_value(v, _precision)}{'*' if flagged else ''}"
+            "—" if pd.isna(v) else f"{format_value(v, _precision)}{' - LOQ' if flagged else ''}"
             for v, flagged in zip(reportable_results[_col], _below_loq_mask)
         ]
     loq_dim_mask = pd.DataFrame(
@@ -493,14 +501,14 @@ if uploaded_file is not None:
 
     def _apply_pdf_loq_footnote(data):
         """PDF-only: unlike st.table(), reportlab's Paragraph genuinely parses its
-        own markup, so the PDF gets a properly raised, gray asterisk via
-        <font>/<super> rather than dim_mask + a trailing "*"."""
+        own markup, so the PDF gets a properly grayed "- LOQ" suffix via <font>
+        rather than dim_mask + a trailing " - LOQ"."""
         data = data.copy()
         for col in _loq_footnote_cols:
             precision = _AVERAGED_PRECISION.get(col)
             data[col] = [
                 "—" if pd.isna(v) else (
-                    f'<font color="#999999">{format_value(v, precision)}<super>*</super></font>'
+                    f'<font color="#999999">{format_value(v, precision)} - LOQ</font>'
                     if flagged else format_value(v, precision)
                 )
                 for v, flagged in zip(data[col], _below_loq_mask)
