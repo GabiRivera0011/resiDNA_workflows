@@ -401,17 +401,17 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
     being recalculated.
 
     `samples_df` must have the same columns resolve_sample_replicates()
-    requires, plus percent_recovery.
+    requires, plus percent_recovery and spike_input.
 
     Returns one row per spiked dilution: Sample, Dilution Factor,
-    Quantity %CV, Replicates Used, CV Pass, Total DNA (ng/mL), % Recovery,
-    Recovery Pass. Empty (but correctly columned) if this run has no spiked
-    dilutions — most runs don't; spiking is an occasional follow-up test, not
-    part of every dilution series.
+    Quantity %CV, Replicates Used, CV Pass, Total DNA (ng/mL),
+    Spike Input, ng/mL, % Recovery, Recovery Pass. Empty (but correctly
+    columned) if this run has no spiked dilutions — most runs don't; spiking
+    is an occasional follow-up test, not part of every dilution series.
     """
     columns = [
         "Sample", "Dilution Factor", "Quantity %CV", "Replicates Used", "CV Pass",
-        "Total DNA (ng/mL)", "% Recovery", "Recovery Pass",
+        "Total DNA (ng/mL)", "Spike Input, ng/mL", "% Recovery", "Recovery Pass",
     ]
     spiked_samples = samples_df[samples_df["sample_name"].str.endswith(" S")].copy()
     if spiked_samples.empty:
@@ -420,6 +420,7 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
     resolved = resolve_sample_replicates(spiked_samples, cv_max)
     recovery = spiked_samples.groupby("sample_name", as_index=False).agg(**{
         "% Recovery": ("percent_recovery", "first"),
+        "Spike Input, ng/mL": ("spike_input", "first"),
     })
     spike_suitability = resolved.merge(recovery, on="sample_name")
 

@@ -105,10 +105,9 @@ def _active_criterion(name, default):
 @st.dialog("Edit Acceptance Criteria", width="large")
 def _edit_criteria_dialog():
     st.caption(
-        "Leave a box empty to keep the current value, shown grayed out as a "
-        "placeholder. Overrides apply for this browser session only — they "
-        "reset when you reload the page — and any still active when you "
-        "generate a report are listed on-screen and in the PDF."
+        "Leave a box empty to keep its current value (shown grayed out). "
+        "Changes apply to this session only and reset on reload. Active "
+        "overrides are listed on-screen and in the PDF when you generate a report."
     )
     for group_name, criteria in CRITERIA_GROUPS:
         st.markdown(f"**{group_name}**")
@@ -202,7 +201,7 @@ if uploaded_file is not None:
         "ct": "Ct", "ct_mean": "Ct Mean", "ct_sd": "Ct SD",
         "quantity": "Quantity", "quantity_mean": "Quantity Mean", "quantity_sd": "Quantity SD",
         "quantity_percent_cv": "Quantity %CV", "ct_cv_percent": "Ct CV%",
-        "percent_recovery": "% Recovery",
+        "percent_recovery": "% Recovery", "spike_input": "Spike Input",
         "back_calculation_percent_difference_mean": "Back Calculation % difference Mean",
         "back_calculation_mean": "Back Calculation Mean",
         "dilution_adjusted": "Dilution Adjusted", "dilution_factor": "Dilution Factor",
@@ -717,10 +716,7 @@ if uploaded_file is not None:
     if len(spike_suitability):
         st.table(style_table(
             spike_suitability,
-            caption=(
-                f"Spike Recovery Suitability (Quantity %CV ≤ {SAMPLE_QTY_CV_MAX:g}%, Recovery "
-                f"{SAMPLE_SPIKE_RECOVERY_MIN:g}–{SAMPLE_SPIKE_RECOVERY_MAX:g}%)"
-            ),
+            caption="Spike Recovery Suitability",
             align="left", precision=None, precision_overrides={"Replicates Used": 0},
             highlight_rows=(
                 (spike_suitability["CV Pass"] == "Pass") & (spike_suitability["Recovery Pass"] == "Pass")

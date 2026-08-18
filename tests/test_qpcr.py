@@ -351,7 +351,7 @@ def test_compute_sample_status_per_sample_independent():
 
 # --- compute_spike_suitability -----------------------------------------------
 
-def _spiked_well_rows(sample_name, quantities, percent_recovery, dilution_factor=1.0):
+def _spiked_well_rows(sample_name, quantities, percent_recovery, dilution_factor=1.0, spike_input=3.0):
     return pd.DataFrame({
         "sample_name": [sample_name] * len(quantities),
         "quantity": quantities,
@@ -363,6 +363,7 @@ def _spiked_well_rows(sample_name, quantities, percent_recovery, dilution_factor
         "total_dna_per_ml": [np.mean(quantities) * dilution_factor] * len(quantities),
         "total_dna_per_protein_concentration": [np.nan] * len(quantities),
         "percent_recovery": [percent_recovery] * len(quantities),
+        "spike_input": [spike_input] * len(quantities),
     })
 
 
@@ -372,17 +373,18 @@ def test_compute_spike_suitability_empty_when_no_spiked_rows():
         "quantity": [1.0], "quantity_mean": [1.0], "quantity_percent_cv": [2.0],
         "dilution_adjusted": [1.0], "total_dna_per_ml": [1.0],
         "total_dna_per_protein_concentration": [1.0], "percent_recovery": [np.nan],
+        "spike_input": [np.nan],
     })
     result = compute_spike_suitability(unspiked_only, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
     assert result.empty
     assert list(result.columns) == [
         "Sample", "Dilution Factor", "Quantity %CV", "Replicates Used", "CV Pass",
-        "Total DNA (ng/mL)", "% Recovery", "Recovery Pass",
+        "Total DNA (ng/mL)", "Spike Input, ng/mL", "% Recovery", "Recovery Pass",
     ]
 
 
 def test_compute_spike_suitability_pass_case():
-    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=108.88)
+    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=108.88, spike_input=3.0)
     result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
     row = result.iloc[0]
     assert row["Sample"] == "S1 D1 S"
@@ -390,6 +392,7 @@ def test_compute_spike_suitability_pass_case():
     assert row["CV Pass"] == "Pass"
     assert row["% Recovery"] == pytest.approx(108.88)
     assert row["Recovery Pass"] == "Pass"
+    assert row["Spike Input, ng/mL"] == pytest.approx(3.0)
 
 
 def test_compute_spike_suitability_recovery_out_of_bounds_fails():

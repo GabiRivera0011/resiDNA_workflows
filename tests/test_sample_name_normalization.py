@@ -53,6 +53,7 @@ def _well_rows(sample_name, quantities, percent_recovery, dilution_factor):
         "total_dna_per_ml": [np.mean(quantities) * dilution_factor] * len(quantities),
         "total_dna_per_protein_concentration": [np.nan] * len(quantities),
         "percent_recovery": [percent_recovery] * len(quantities),
+        "spike_input": [3.0] * len(quantities),
     })
 
 
