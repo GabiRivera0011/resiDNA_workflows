@@ -178,6 +178,18 @@ if uploaded_file is not None:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # Analysts sometimes type extra/inconsistent whitespace into Sample Name
+    # or Task (e.g. "S1  D1" vs "S1 D1", or a trailing space before a spike
+    # well's " S" suffix) — collapsed here, once, right after parsing, since
+    # every downstream step (classification, triplicate grouping, the
+    # spike/unspiked dilution-factor lookup, etc.) groups rows by exact
+    # string equality and would otherwise silently split what's really the
+    # same sample into separate groups. .str methods skip real NaN (unused
+    # wells) rather than stringifying it to the literal text "nan", so this
+    # is safe to apply unconditionally.
+    df["sample_name"] = df["sample_name"].str.strip().str.replace(r"\s+", " ", regex=True)
+    df["task"] = df["task"].str.strip().str.replace(r"\s+", " ", regex=True)
+
     # klib.data_cleaning() drops any column that's >=90% missing or single-valued
     # (including all-NaN, which counts as single-valued) FOR THIS PARTICULAR DATASET.
     # Which columns end up sparse/constant varies run to run (e.g. a run with only one
@@ -706,9 +718,8 @@ if uploaded_file is not None:
         st.table(style_table(
             spike_suitability,
             caption=(
-                "Spike Recovery Suitability (informational — doesn't affect the results above) — "
-                f"Quantity %CV ≤ {SAMPLE_QTY_CV_MAX:g}%, Recovery "
-                f"{SAMPLE_SPIKE_RECOVERY_MIN:g}–{SAMPLE_SPIKE_RECOVERY_MAX:g}%"
+                f"Spike Recovery Suitability (Quantity %CV ≤ {SAMPLE_QTY_CV_MAX:g}%, Recovery "
+                f"{SAMPLE_SPIKE_RECOVERY_MIN:g}–{SAMPLE_SPIKE_RECOVERY_MAX:g}%)"
             ),
             align="left", precision=None, precision_overrides={"Replicates Used": 0},
             highlight_rows=(

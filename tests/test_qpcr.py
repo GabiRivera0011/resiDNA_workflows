@@ -419,3 +419,25 @@ def test_compute_spike_suitability_only_reports_spiked_rows():
     unspiked = _spiked_well_rows("S1 D1", [0.001, 0.001, 0.001], percent_recovery=np.nan)
     result = compute_spike_suitability(pd.concat([spiked, unspiked]), 25.0, 80.0, 125.0)
     assert list(result["Sample"]) == ["S1 D1 S"]
+
+
+def test_compute_spike_suitability_dilution_factor_comes_from_unspiked_counterpart():
+    # The real QuantStudio export reports Dilution Factor = 1.0 on every spike
+    # well regardless of which dilution level it's actually at — the true
+    # dilution factor is only correct on the unspiked counterpart (e.g. "S1
+    # D2" for "S1 D2 S"). Build spiked rows that (like the real export) claim
+    # dilution_factor=1.0 on themselves, paired with unspiked counterparts at
+    # their real dilution factors, and confirm the reported value comes from
+    # the unspiked side, not the spike well's own (wrong) figure.
+    rows = pd.concat([
+        _spiked_well_rows("S1 D1 S", [3.0, 3.1, 3.2], percent_recovery=100.0, dilution_factor=1.0),
+        _spiked_well_rows("S1 D1", [1.0, 1.0, 1.0], percent_recovery=np.nan, dilution_factor=1.0),
+        _spiked_well_rows("S1 D2 S", [3.0, 3.1, 3.2], percent_recovery=100.0, dilution_factor=1.0),
+        _spiked_well_rows("S1 D2", [1.0, 1.0, 1.0], percent_recovery=np.nan, dilution_factor=10.0),
+        _spiked_well_rows("S1 D3 S", [3.0, 3.1, 3.2], percent_recovery=100.0, dilution_factor=1.0),
+        _spiked_well_rows("S1 D3", [1.0, 1.0, 1.0], percent_recovery=np.nan, dilution_factor=100.0),
+    ])
+    result = compute_spike_suitability(rows, 25.0, 80.0, 125.0).set_index("Sample")
+    assert result.loc["S1 D1 S", "Dilution Factor"] == 1.0
+    assert result.loc["S1 D2 S", "Dilution Factor"] == 10.0
+    assert result.loc["S1 D3 S", "Dilution Factor"] == 100.0

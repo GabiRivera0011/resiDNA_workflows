@@ -420,9 +420,24 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
     resolved = resolve_sample_replicates(spiked_samples, cv_max)
     recovery = spiked_samples.groupby("sample_name", as_index=False).agg(**{
         "% Recovery": ("percent_recovery", "first"),
-        "dilution_factor": ("dilution_factor", "first"),
     })
     spike_suitability = resolved.merge(recovery, on="sample_name")
+
+    # A spike well's own "Dilution Factor" in the raw export isn't meaningful
+    # — the instrument reports 1.0 for every spike well regardless of which
+    # dilution level it was actually spiked at. The dilution that matters is
+    # its unspiked counterpart's (e.g. "S1 D2" for "S1 D2 S"), since the
+    # spike is added to that already-diluted sample, not re-diluted itself.
+    unspiked_dilution_factors = (
+        samples_df[~samples_df["sample_name"].str.endswith(" S")]
+        .drop_duplicates(subset="sample_name")
+        .set_index("sample_name")["dilution_factor"]
+    )
+    spike_suitability["Dilution Factor"] = (
+        spike_suitability["sample_name"]
+        .str.replace(r" S$", "", regex=True)
+        .map(unspiked_dilution_factors)
+    )
 
     spike_suitability["CV Pass"] = spike_suitability["quantity_percent_cv"].apply(
         lambda cv: "N/A" if pd.isna(cv) else ("Pass" if cv <= cv_max else "Fail")
@@ -431,7 +446,7 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
         lambda r: "N/A" if pd.isna(r) else ("Pass" if recovery_min <= r <= recovery_max else "Fail")
     )
     spike_suitability = spike_suitability.rename(columns={
-        "sample_name": "Sample", "dilution_factor": "Dilution Factor",
+        "sample_name": "Sample",
         "quantity_percent_cv": "Quantity %CV", "replicates_used": "Replicates Used",
         "total_dna_per_ml": "Total DNA (ng/mL)",
     })
