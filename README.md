@@ -8,6 +8,7 @@ resiDNA_workflows/
 │
 ├── app/
 │   ├── app.py                     # Phase II Streamlit app — local web UI, mirrors the notebook
+│   ├── audit_log.py               # opt-in audit log (RESIDNA_AUDIT_LOG) — app.py-only, see Data Privacy below
 │   └── requirements.txt           # dependencies for the Streamlit app
 ├── .streamlit/
 │   └── config.toml                # light theme + wide layout (must stay at repo root)
@@ -15,18 +16,17 @@ resiDNA_workflows/
 ├── Notebooks/
 │   └── 01_Phase I.ipynb          # Phase I notebook — import through PDF report generation
 │
-├── Data/
-│   ├── experiment_001.xlsx       # primary dataset the notebook was built against
-│   ├── sample_data_001.xls       # real-world dataset — validated
-│   └── sample_data_002.xls       # real-world dataset — validated
+├── Data/                         # local QuantStudio exports — real (scrubbed) company data, not committed
 │
 ├── Scripts/
 │   ├── qpcr.py                    # shared classification/suitability logic — imported by both the notebook and app.py
 │   └── plotting.py                # shared style_table() — imported by both the notebook and app.py
 ├── Figures/                      # reserved — future shared modules
 ├── Results/                      # generated PDF reports
+├── Logs/                         # audit.log, only if RESIDNA_AUDIT_LOG is enabled — gitignored, not committed
 ├── README.md
-└── IT_Deployment_Guide.md        # IT handoff: on-prem / Azure + SharePoint hosting paths
+├── IT_Deployment_Guide.md        # IT handoff: on-prem / Azure + SharePoint hosting paths (Option A decided)
+└── IT_Setup_Guide_OptionA.md     # from-scratch runbook IT executes: commands, service files, config templates
 ```
 
 ## Application Architecture (In Progress)
@@ -76,9 +76,9 @@ Parser       QC Engine       Calculations
 >2. [x] Backend Processing
 >3. [x] Results Dashboard
 >
->Phase III - Add Criteria Management
+>Phase III - Add Criteria Management — **Done**
 >>Stop changing code every time acceptance criteria change.
->>Update thresholds directly in the notebook's `#@param` cell and mirror them into `app.py` — no separate Settings UI or database needed.
+>>Notebook: update thresholds directly in the `#@param` cell. App: an **Edit Acceptance Criteria** popup (session-only overrides, no database) — see Streamlit App section below.
 >
 >Phase IV - Improve Reporting and Visualization — **Not needed**
 >>Current interactive Plotly charts and the PDF report already meet the bar for a professional analytical tool; dropped from the roadmap.
@@ -137,6 +137,14 @@ Two tables: *Final Sample Results by Dilution* and *Final Sample Results — Ave
 
 Each dilution is classified individually first, then a sample with multiple dilutions reports whichever status ranks best across them (`Reportable` > `LOQ - Spike Test` / `ULOQ - Adjust Dilution` > `Retest`) — the same "any dilution passing is enough" rule already used for `Sample Passed`.
 
+**Sample Spike Recovery (Informational)** — a follow-up confirmatory test, typically run on samples flagged `LOQ - Spike Test` above, to check whether a low/below-LOQ result reflects genuine low DNA or matrix inhibition suppressing recovery. A spiked dilution is identified by a `" S"` suffix on the sample name (e.g. `S1 D1 S`) and gets its own two checks:
+| Check | Formula | Pass |
+|---|---|---|
+| Quantity %CV (triplicate) | same single-outlier-exclusion resolution as unspiked dilutions (`resolve_sample_replicates()`) | ≤ 25% |
+| % Recovery | instrument-computed: `100 × (Spiked Quantity Mean − Unspiked Quantity Mean) / Spike Input` | 80%–125% |
+
+Reported in its own *Spike Recovery Suitability* table, placed below *Final Sample Results — Averaged per Sample*, green-highlighted where both checks pass. Deliberately informational only — it does not feed into or gate the corresponding unspiked dilution's own Suitability, Next Step, or whether it's averaged into the final result. Most runs have no spiked dilutions at all; spiking is an occasional follow-up test, not part of every dilution series, so this table (and section) is skipped entirely when there's nothing to report.
+
 ## Criteria Verification
 
 - **Output Verification**: all thresholds live in one Colab-form-editable cell (`#@param`) in the notebook, right after Data Classification. Values marked "instrument-computed" above are read forward from the QuantStudio export as-is (not recalculated) — the notebook's Output Verification cell checks they survive parsing unchanged. The one exception is Dilutional Linearity's `% Bias`, which is genuinely computed rather than read from the instrument.
@@ -154,10 +162,20 @@ Both the notebook and the Streamlit app generate the same formatted PDF summariz
 
 `app.py` is the Phase II local web app: upload a QuantStudio file and get the same System Suitability, Sample Suitability, and Final Sample Results sections as the notebook, without touching code, plus:
 - **Sample ID / Sample Name** inputs — one row per Base Sample actually detected in the upload (simpler than the notebook's 8 fixed `#@param` slots, since the app can generate inputs from real data).
+- **Edit Acceptance Criteria** — a popup for adjusting any threshold in the Acceptance Criteria section above (e.g. Sample Quantity %CV Max, PC/ERC %Recovery bounds) without touching code. See below.
 - **Standard Curve graphs** (QC-controls overlay and per-sample overlay) and **Amplification Curves (ΔRn vs Cycle)** — all interactive Plotly charts.
 - A **Download PDF Report** button producing the same report described above.
 
 Only the sections that map to the PDF report are shown — raw file preview, parse stats, and the classification table run silently in the background rather than cluttering the page.
+
+### Edit Acceptance Criteria
+
+A button near the top opens a popup (`st.dialog`) with one box per criterion, grouped the same way as the Acceptance Criteria section above. Each box is empty, showing its current value grayed out as a placeholder — type a new value to override it, or leave it blank to keep the current one. A **Reset all to defaults** button clears every override at once.
+
+Overrides are **session-only**: scoped to your browser tab, gone on reload. Trying a "what if this threshold were different" never silently changes results for anyone else or leaves a stale override for the next person on a shared deployment — deliberate, given the app currently has no login to attribute an override to a specific person. Whenever at least one criterion differs from its shipped default:
+- An on-screen notice lists exactly which criteria changed, current default, and value used.
+- The PDF report gets a **Modified Acceptance Criteria** section with the same table, placed right after Run Info.
+- If the audit log is enabled (see below), the change is recorded there too — the only durable record that a report was generated with non-default thresholds, since the override itself is never saved anywhere.
 
 ## Data Privacy & Security (DEMO Streamlit App)
 
@@ -165,8 +183,9 @@ Only the sections that map to the PDF report are shown — raw file preview, par
 - The Community Cloud link is served over HTTPS by default — traffic between the browser and Streamlit's servers is encrypted.
 
 **In the app**
-- `app.py` processes uploaded files entirely in memory (`st.file_uploader` → pandas parsing → Plotly charts / PDF generation). Nothing is written to disk or a database on the server — no `Results/` writes, no SQLite. Once a session ends or the app restarts, the uploaded file and its analysis are gone.
+- `app.py` processes uploaded files entirely in memory (`st.file_uploader` → pandas parsing → Plotly charts / PDF generation). By default, nothing is written to disk or a database on the server — no `Results/` writes, no SQLite. Once a session ends or the app restarts, the uploaded file and its analysis are gone.
 - The PDF report is streamed straight to the browser as a download; it isn't retained server-side.
+- **Exception — audit log**: `app/audit_log.py` appends one record per generated PDF report (timestamp, uploaded filename, a SHA-256 hash of it, assay/run info, submitter/reviewer name, pass/fail, and any Edit Acceptance Criteria overrides active for that report — never the analytical results themselves) to `Logs/audit.log`, but only if the `RESIDNA_AUDIT_LOG` environment variable is set. It's unset (off) by default and on this demo deployment, so the "nothing persisted" behavior above still holds here — it's only enabled on the company-hosted deployment, where compliance requires it (see [IT_Deployment_Guide.md](IT_Deployment_Guide.md)).
 
 **Who can reach the app**
 - Access to the live link is restricted via Streamlit Community Cloud's viewer authentication: in the app's dashboard under **Settings → Sharing**, it is set to an allowlist of company email addresses — only people who sign in with one of those emails can open it.
@@ -196,6 +215,8 @@ python -m venv .venv
 ```
 Opens at `http://localhost:8501` — only reachable while that command is still running in a terminal; closing it (or restarting your computer) stops the app until you run it again.
 
+The audit log (see Data Privacy above) is off by default locally too. To try it: set `RESIDNA_AUDIT_LOG=1` before launching (`$env:RESIDNA_AUDIT_LOG="1"` in PowerShell), generate a report, then check `Logs/audit.log`.
+
 ## Running Tests
 
 ```powershell
@@ -203,11 +224,13 @@ python -m venv .venv
 .venv\Scripts\pip install -r app\requirements.txt -r tests\requirements.txt
 .venv\Scripts\pytest tests -v
 ```
-Two suites, both under `tests/`:
+Four suites, all under `tests/`:
 - `test_qpcr.py` — unit tests for every pure function in `Scripts/qpcr.py`, independent of any data file.
-- `test_app_golden.py` — runs the real `app/app.py` (headlessly, via a fake `streamlit` module in `tests/streamlit_stub.py`) against each file in `Data/` and checks `final_results`/`reportable_results` against known-good values, so a future change that silently shifts a Sample Suitability result gets caught automatically. `Data/*.xls`/`.xlsx` are real (scrubbed) company data and aren't committed to the repo (see Data Privacy below and git history), so these tests **skip**, not fail, wherever those files aren't present — a fresh clone or CI run will show them skipped, which is expected.
+- `test_app_golden.py` — runs the real `app/app.py` (headlessly, via a fake `streamlit` module in `tests/streamlit_stub.py`) against each file in `Data/` and checks `final_results`/`reportable_results` against known-good values, so a future change that silently shifts a Sample Suitability result gets caught automatically. `Data/*.xls`/`.xlsx` are real (scrubbed) company data and aren't committed to the repo (see Data Privacy above and git history), so these tests **skip**, not fail, wherever those files aren't present — a fresh clone or CI run will show them skipped, which is expected.
+- `test_audit_log.py` — unit tests for `app/audit_log.py`, including that it's a no-op unless `RESIDNA_AUDIT_LOG` is set and that raw analytical data never ends up in a log record.
+- `test_app_criteria.py` — runs `app/app.py` with `st.session_state` seeded to simulate Edit Acceptance Criteria overrides, checking the override is applied, reported on-screen, in the PDF, and in the audit log — and that leaving everything at its default reports nothing.
 
 ## Backlog — Recommended Cleanup
 
 - [ ] Notebook outputs (styled tables, the `klib` plot) are committed inline, which makes diffs large. Consider `nbstripout` or committing a rendered HTML export alongside a stripped notebook.
-- [ ] `Scripts/qpcr.py` / `Scripts/plotting.py` now hold the shared, self-contained logic (`style_table`, `classify_sample`, `recovery_bounds`, `combined_suitability`, the LOD sigma-Ct formula, the single-outlier triplicate resolution (`resolve_sample_replicates`), the Dilutional Linearity %Bias calculation, the Sample LOQ/STD Range derivation, STD Range suitability, the averaged-results fallback aggregation, and the per-sample Next Step classification) that both the notebook and `app.py` import. Deliberately left duplicated: the parsing/cleaning steps and suitability-table assembly, since the notebook keeps those inline, cell-by-cell, on purpose — that step-by-step visibility is Phase I's whole point (see Road Map). Worth revisiting only if that tradeoff stops being worth it.
+- [ ] `Scripts/qpcr.py` / `Scripts/plotting.py` now hold the shared, self-contained logic (`style_table`, `classify_sample`, `recovery_bounds`, `combined_suitability`, the LOD sigma-Ct formula, the single-outlier triplicate resolution (`resolve_sample_replicates`), the Dilutional Linearity %Bias calculation, the Sample LOQ/STD Range derivation, STD Range suitability, the averaged-results fallback aggregation, the per-sample Next Step classification, and the Spike Recovery precision/recovery check) that both the notebook and `app.py` import. Deliberately left duplicated: the parsing/cleaning steps and suitability-table assembly, since the notebook keeps those inline, cell-by-cell, on purpose — that step-by-step visibility is Phase I's whole point (see Road Map). Worth revisiting only if that tradeoff stops being worth it.

@@ -217,5 +217,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Audit log — real operational data once deployed (see app/audit_log.py); the
+# Logs/ directory itself is tracked via Logs/.gitkeep, its contents are not
+Logs/*.log
+
 # Mac system files
 .DS_Store

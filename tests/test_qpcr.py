@@ -11,6 +11,7 @@ from qpcr import (
     classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct,
     compute_loq_and_range, resolve_sample_replicates, compute_range_suitability,
     compute_dilutional_linearity, aggregate_sample_results, compute_sample_status,
+    compute_spike_suitability,
 )
 
 
@@ -346,3 +347,75 @@ def test_compute_sample_status_per_sample_independent():
     status = compute_sample_status(final_results, RANGE_COL, STD6, STD1)
     assert status["S1"] == "Reportable"
     assert status["S2"] == "Retest"
+
+
+# --- compute_spike_suitability -----------------------------------------------
+
+def _spiked_well_rows(sample_name, quantities, percent_recovery, dilution_factor=1.0):
+    return pd.DataFrame({
+        "sample_name": [sample_name] * len(quantities),
+        "quantity": quantities,
+        "dilution_factor": [dilution_factor] * len(quantities),
+        "protein_concentration": [np.nan] * len(quantities),  # real export: NaN for spike rows
+        "quantity_percent_cv": [np.std(quantities, ddof=1) / np.mean(quantities) * 100] * len(quantities),
+        "quantity_mean": [np.mean(quantities)] * len(quantities),
+        "dilution_adjusted": [np.mean(quantities) * dilution_factor] * len(quantities),
+        "total_dna_per_ml": [np.mean(quantities) * dilution_factor] * len(quantities),
+        "total_dna_per_protein_concentration": [np.nan] * len(quantities),
+        "percent_recovery": [percent_recovery] * len(quantities),
+    })
+
+
+def test_compute_spike_suitability_empty_when_no_spiked_rows():
+    unspiked_only = pd.DataFrame({
+        "sample_name": ["S1 D1"], "dilution_factor": [1.0], "protein_concentration": [1.0],
+        "quantity": [1.0], "quantity_mean": [1.0], "quantity_percent_cv": [2.0],
+        "dilution_adjusted": [1.0], "total_dna_per_ml": [1.0],
+        "total_dna_per_protein_concentration": [1.0], "percent_recovery": [np.nan],
+    })
+    result = compute_spike_suitability(unspiked_only, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+    assert result.empty
+    assert list(result.columns) == [
+        "Sample", "Dilution Factor", "Quantity %CV", "Replicates Used", "CV Pass",
+        "Total DNA (ng/mL)", "% Recovery", "Recovery Pass",
+    ]
+
+
+def test_compute_spike_suitability_pass_case():
+    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=108.88)
+    result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+    row = result.iloc[0]
+    assert row["Sample"] == "S1 D1 S"
+    assert row["Replicates Used"] == 3
+    assert row["CV Pass"] == "Pass"
+    assert row["% Recovery"] == pytest.approx(108.88)
+    assert row["Recovery Pass"] == "Pass"
+
+
+def test_compute_spike_suitability_recovery_out_of_bounds_fails():
+    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=150.0)
+    result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+    assert result.iloc[0]["Recovery Pass"] == "Fail"
+
+
+def test_compute_spike_suitability_missing_recovery_is_na():
+    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=np.nan)
+    result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+    assert result.iloc[0]["Recovery Pass"] == "N/A"
+
+
+def test_compute_spike_suitability_reuses_single_outlier_rescue():
+    # One clear outlier in the triplicate; dropping it should rescue the CV,
+    # same as resolve_sample_replicates() already does for unspiked dilutions.
+    df = _spiked_well_rows("S1 D1 S", [10.0, 10.2, 50.0], percent_recovery=100.0)
+    result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+    row = result.iloc[0]
+    assert row["Replicates Used"] == 2
+    assert row["CV Pass"] == "Pass"
+
+
+def test_compute_spike_suitability_only_reports_spiked_rows():
+    spiked = _spiked_well_rows("S1 D1 S", [3.0, 3.1, 3.2], percent_recovery=100.0)
+    unspiked = _spiked_well_rows("S1 D1", [0.001, 0.001, 0.001], percent_recovery=np.nan)
+    result = compute_spike_suitability(pd.concat([spiked, unspiked]), 25.0, 80.0, 125.0)
+    assert list(result["Sample"]) == ["S1 D1 S"]

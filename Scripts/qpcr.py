@@ -377,3 +377,62 @@ def compute_sample_status(final_results, range_suitability_col, std6_backcalc_me
         .groupby("Sample #")["_status"]
         .agg(lambda statuses: next(s for s in SAMPLE_STATUS_PRIORITY if s in set(statuses)))
     )
+
+
+def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
+    """Precision + recovery suitability for spiked sample dilutions — a
+    follow-up confirmatory test on a sample_name ending " S" (e.g. "S1 D1 S"),
+    typically run on samples flagged "LOQ - Spike Test" by
+    compute_sample_status() to check whether a low/below-LOQ result reflects
+    genuine low DNA or matrix inhibition suppressing recovery.
+
+    Deliberately informational only: results here do not feed into or gate
+    the corresponding unspiked dilution's own Suitability, Next Step, or
+    whether it's averaged into the final result — this function only reports
+    on the " S" rows, never touches the unspiked ones.
+
+    Quantity %CV precision reuses resolve_sample_replicates() (the same
+    single-outlier-exclusion resolution used for unspiked dilutions) against
+    `cv_max`. % Recovery is read forward as the instrument's own precalculated
+    value (the `percent_recovery` column — computed by the instrument as
+    100 * (Spiked Quantity Mean - Unspiked Quantity Mean) / Spike Input) and
+    checked against [recovery_min, recovery_max], consistent with this
+    pipeline's rule that instrument-computed values survive as-is rather than
+    being recalculated.
+
+    `samples_df` must have the same columns resolve_sample_replicates()
+    requires, plus percent_recovery.
+
+    Returns one row per spiked dilution: Sample, Dilution Factor,
+    Quantity %CV, Replicates Used, CV Pass, Total DNA (ng/mL), % Recovery,
+    Recovery Pass. Empty (but correctly columned) if this run has no spiked
+    dilutions — most runs don't; spiking is an occasional follow-up test, not
+    part of every dilution series.
+    """
+    columns = [
+        "Sample", "Dilution Factor", "Quantity %CV", "Replicates Used", "CV Pass",
+        "Total DNA (ng/mL)", "% Recovery", "Recovery Pass",
+    ]
+    spiked_samples = samples_df[samples_df["sample_name"].str.endswith(" S")].copy()
+    if spiked_samples.empty:
+        return pd.DataFrame(columns=columns)
+
+    resolved = resolve_sample_replicates(spiked_samples, cv_max)
+    recovery = spiked_samples.groupby("sample_name", as_index=False).agg(**{
+        "% Recovery": ("percent_recovery", "first"),
+        "dilution_factor": ("dilution_factor", "first"),
+    })
+    spike_suitability = resolved.merge(recovery, on="sample_name")
+
+    spike_suitability["CV Pass"] = spike_suitability["quantity_percent_cv"].apply(
+        lambda cv: "N/A" if pd.isna(cv) else ("Pass" if cv <= cv_max else "Fail")
+    )
+    spike_suitability["Recovery Pass"] = spike_suitability["% Recovery"].apply(
+        lambda r: "N/A" if pd.isna(r) else ("Pass" if recovery_min <= r <= recovery_max else "Fail")
+    )
+    spike_suitability = spike_suitability.rename(columns={
+        "sample_name": "Sample", "dilution_factor": "Dilution Factor",
+        "quantity_percent_cv": "Quantity %CV", "replicates_used": "Replicates Used",
+        "total_dna_per_ml": "Total DNA (ng/mL)",
+    })
+    return spike_suitability[columns].sort_values("Sample").reset_index(drop=True)

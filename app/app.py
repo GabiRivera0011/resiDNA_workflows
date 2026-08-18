@@ -9,13 +9,20 @@ import klib
 
 # Scripts/ lives at the repo root, one level up from this file's app/ folder
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "Scripts"))
+# audit_log.py lives alongside this file — a normal `streamlit run`/`python`
+# invocation puts a script's own directory on sys.path automatically, but the
+# test suite exec()s this file's source directly (not a real script
+# invocation), which doesn't; inserted explicitly so both paths work.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from qpcr import (
     classify_sample, recovery_bounds, combined_suitability,
     compute_dilutional_linearity, resolve_sample_replicates, compute_loq_and_range,
     compute_range_suitability, aggregate_sample_results, compute_sample_status,
+    compute_spike_suitability,
 )
 from plotting import style_table, format_df_for_display, format_value
+from audit_log import log_report_generated
 
 # Must be the very first Streamlit command — widens the page from the default
 # centered ~730px column to the full browser width, so wide tables (like Sample
@@ -29,6 +36,99 @@ FINAL_RESULTS_PRECISION = {
     "Replicates Used": 0,
     "Linearity %Bias": 2,
 }
+
+# =========================================================================
+# Acceptance Criteria — shipped defaults + session-only overrides via the
+# "Edit Acceptance Criteria" dialog below. Session-only by design: an
+# override is scoped to your browser tab and resets on reload, so trying a
+# "what if this threshold were different" never silently changes results
+# for anyone else, or leaves a stale override for the next person on a
+# shared deployment. Any override still active when a report is generated
+# is called out on-screen and in the PDF (see "changed criteria" below) so
+# the record shows plainly that non-default thresholds were used.
+# =========================================================================
+DEFAULT_STD_R2_MIN = 0.99
+DEFAULT_STD_CT_CV_MAX = 20.0
+DEFAULT_STD_BACK_CALC_BIAS_MAX = 25.0
+DEFAULT_STD_EFFICIENCY_MIN = 90.0
+DEFAULT_STD_EFFICIENCY_MAX = 110.0
+DEFAULT_CTRL_QTY_CV_MAX = 20.0
+DEFAULT_PC_RECOVERY_MIN = 80.0
+DEFAULT_PC_RECOVERY_MAX = 125.0
+DEFAULT_ERC_RECOVERY_MIN = 50.0
+DEFAULT_ERC_RECOVERY_MAX = 150.0
+DEFAULT_SAMPLE_QTY_CV_MAX = 25.0
+DEFAULT_SAMPLE_LINEARITY_BIAS_MAX = 20.0
+DEFAULT_SAMPLE_DNA_PER_PROTEIN_LIMIT = 15.0
+DEFAULT_SAMPLE_SPIKE_RECOVERY_MIN = 80.0
+DEFAULT_SAMPLE_SPIKE_RECOVERY_MAX = 125.0
+
+# (name, label, default, number_input format) grouped for the dialog's
+# layout — also the single source of truth for which criteria are
+# overridable, so the dialog, the resolution step below, and the
+# changed-criteria report can't drift out of sync with each other.
+CRITERIA_GROUPS = [
+    ("STD Curve", [
+        ("STD_R2_MIN", "R² Min", DEFAULT_STD_R2_MIN, "%.2f"),
+        ("STD_CT_CV_MAX", "Ct %CV Max", DEFAULT_STD_CT_CV_MAX, "%.1f"),
+        ("STD_BACK_CALC_BIAS_MAX", "Back-Calc %Bias Max", DEFAULT_STD_BACK_CALC_BIAS_MAX, "%.1f"),
+        ("STD_EFFICIENCY_MIN", "Efficiency Min %", DEFAULT_STD_EFFICIENCY_MIN, "%.1f"),
+        ("STD_EFFICIENCY_MAX", "Efficiency Max %", DEFAULT_STD_EFFICIENCY_MAX, "%.1f"),
+    ]),
+    ("ERC / PC Controls", [
+        ("CTRL_QTY_CV_MAX", "Quantity %CV Max", DEFAULT_CTRL_QTY_CV_MAX, "%.1f"),
+        ("PC_RECOVERY_MIN", "PC %Recovery Min", DEFAULT_PC_RECOVERY_MIN, "%.1f"),
+        ("PC_RECOVERY_MAX", "PC %Recovery Max", DEFAULT_PC_RECOVERY_MAX, "%.1f"),
+        ("ERC_RECOVERY_MIN", "ERC %Recovery Min", DEFAULT_ERC_RECOVERY_MIN, "%.1f"),
+        ("ERC_RECOVERY_MAX", "ERC %Recovery Max", DEFAULT_ERC_RECOVERY_MAX, "%.1f"),
+    ]),
+    ("Sample Suitability", [
+        ("SAMPLE_QTY_CV_MAX", "Quantity %CV Max", DEFAULT_SAMPLE_QTY_CV_MAX, "%.1f"),
+        ("SAMPLE_LINEARITY_BIAS_MAX", "Linearity %Bias Max", DEFAULT_SAMPLE_LINEARITY_BIAS_MAX, "%.1f"),
+        ("SAMPLE_DNA_PER_PROTEIN_LIMIT", "DNA per Protein Limit (ng/mg)", DEFAULT_SAMPLE_DNA_PER_PROTEIN_LIMIT, "%.1f"),
+    ]),
+    ("Spike Recovery", [
+        ("SAMPLE_SPIKE_RECOVERY_MIN", "%Recovery Min", DEFAULT_SAMPLE_SPIKE_RECOVERY_MIN, "%.1f"),
+        ("SAMPLE_SPIKE_RECOVERY_MAX", "%Recovery Max", DEFAULT_SAMPLE_SPIKE_RECOVERY_MAX, "%.1f"),
+    ]),
+]
+
+
+def _active_criterion(name, default):
+    """The value to actually use for criterion `name`: this session's
+    override if one was entered in the Edit Acceptance Criteria dialog,
+    otherwise the shipped default."""
+    override = st.session_state.get(f"criteria_override_{name}")
+    return default if override is None else override
+
+
+@st.dialog("Edit Acceptance Criteria", width="large")
+def _edit_criteria_dialog():
+    st.caption(
+        "Leave a box empty to keep the current value, shown grayed out as a "
+        "placeholder. Overrides apply for this browser session only — they "
+        "reset when you reload the page — and any still active when you "
+        "generate a report are listed on-screen and in the PDF."
+    )
+    for group_name, criteria in CRITERIA_GROUPS:
+        st.markdown(f"**{group_name}**")
+        cols = st.columns(2)
+        for i, (name, label, default, fmt) in enumerate(criteria):
+            with cols[i % 2]:
+                st.number_input(
+                    label, value=None, placeholder=fmt % default,
+                    key=f"criteria_override_{name}", format=fmt,
+                )
+    st.divider()
+    if st.button("Reset all to defaults"):
+        for _, criteria in CRITERIA_GROUPS:
+            for name, _, _, _ in criteria:
+                st.session_state.pop(f"criteria_override_{name}", None)
+        st.rerun()
+
+
+if st.button("⚙️ Edit Acceptance Criteria"):
+    _edit_criteria_dialog()
 
 
 st.header("Upload QuantStudio File")
@@ -152,20 +252,36 @@ if uploaded_file is not None:
         LAB_NAME = st.text_input("Laboratory")
         LAB_ADDRESS = st.text_input("Laboratory Address")
 
-    # --- Acceptance criteria (fixed defaults, matching the notebook) ---
-    STD_R2_MIN = 0.99
-    STD_CT_CV_MAX = 20.0
-    STD_BACK_CALC_BIAS_MAX = 25.0
-    STD_EFFICIENCY_MIN = 90.0
-    STD_EFFICIENCY_MAX = 110.0
-    CTRL_QTY_CV_MAX = 20.0
-    PC_RECOVERY_MIN = 80.0
-    PC_RECOVERY_MAX = 125.0
-    ERC_RECOVERY_MIN = 50.0
-    ERC_RECOVERY_MAX = 150.0
-    SAMPLE_QTY_CV_MAX = 25.0
-    SAMPLE_LINEARITY_BIAS_MAX = 20
-    SAMPLE_DNA_PER_PROTEIN_LIMIT = 15.0
+    # --- Acceptance criteria: this session's active values (defaults, unless
+    # overridden via the Edit Acceptance Criteria dialog above) ---
+    STD_R2_MIN = _active_criterion("STD_R2_MIN", DEFAULT_STD_R2_MIN)
+    STD_CT_CV_MAX = _active_criterion("STD_CT_CV_MAX", DEFAULT_STD_CT_CV_MAX)
+    STD_BACK_CALC_BIAS_MAX = _active_criterion("STD_BACK_CALC_BIAS_MAX", DEFAULT_STD_BACK_CALC_BIAS_MAX)
+    STD_EFFICIENCY_MIN = _active_criterion("STD_EFFICIENCY_MIN", DEFAULT_STD_EFFICIENCY_MIN)
+    STD_EFFICIENCY_MAX = _active_criterion("STD_EFFICIENCY_MAX", DEFAULT_STD_EFFICIENCY_MAX)
+    CTRL_QTY_CV_MAX = _active_criterion("CTRL_QTY_CV_MAX", DEFAULT_CTRL_QTY_CV_MAX)
+    PC_RECOVERY_MIN = _active_criterion("PC_RECOVERY_MIN", DEFAULT_PC_RECOVERY_MIN)
+    PC_RECOVERY_MAX = _active_criterion("PC_RECOVERY_MAX", DEFAULT_PC_RECOVERY_MAX)
+    ERC_RECOVERY_MIN = _active_criterion("ERC_RECOVERY_MIN", DEFAULT_ERC_RECOVERY_MIN)
+    ERC_RECOVERY_MAX = _active_criterion("ERC_RECOVERY_MAX", DEFAULT_ERC_RECOVERY_MAX)
+    SAMPLE_QTY_CV_MAX = _active_criterion("SAMPLE_QTY_CV_MAX", DEFAULT_SAMPLE_QTY_CV_MAX)
+    SAMPLE_LINEARITY_BIAS_MAX = _active_criterion("SAMPLE_LINEARITY_BIAS_MAX", DEFAULT_SAMPLE_LINEARITY_BIAS_MAX)
+    SAMPLE_DNA_PER_PROTEIN_LIMIT = _active_criterion(
+        "SAMPLE_DNA_PER_PROTEIN_LIMIT", DEFAULT_SAMPLE_DNA_PER_PROTEIN_LIMIT
+    )
+    SAMPLE_SPIKE_RECOVERY_MIN = _active_criterion("SAMPLE_SPIKE_RECOVERY_MIN", DEFAULT_SAMPLE_SPIKE_RECOVERY_MIN)
+    SAMPLE_SPIKE_RECOVERY_MAX = _active_criterion("SAMPLE_SPIKE_RECOVERY_MAX", DEFAULT_SAMPLE_SPIKE_RECOVERY_MAX)
+
+    # Every criterion whose active value differs from its shipped default —
+    # surfaced on-screen and in the PDF (below) so a report generated with
+    # non-default thresholds is never silently indistinguishable from one
+    # generated with the shipped defaults.
+    changed_criteria = [
+        {"Criterion": label, "Default": default, "Used": _active_criterion(name, default)}
+        for _, criteria in CRITERIA_GROUPS
+        for name, label, default, _ in criteria
+        if _active_criterion(name, default) != default
+    ]
 
     # --- Standard curve stats (silent) ---
     reg_stats = regression_table.set_index("Metric")["Value"].astype(float)
@@ -357,6 +473,14 @@ if uploaded_file is not None:
     linearity_df = compute_dilutional_linearity(unspiked_dilutions, SAMPLE_LINEARITY_BIAS_MAX, eligible_mask)
     linearity_df = linearity_df.rename(columns={"sample_name": "Sample"})
 
+    # --- Spiked sample suitability (silent) — a follow-up confirmatory test
+    # (sample_name ending " S"), typically run on samples flagged "LOQ - Spike
+    # Test" below. Informational only: never gates the corresponding unspiked
+    # dilution's own Suitability/Next Step/averaging. Most runs have none.
+    spike_suitability = compute_spike_suitability(
+        samples_df, SAMPLE_QTY_CV_MAX, SAMPLE_SPIKE_RECOVERY_MIN, SAMPLE_SPIKE_RECOVERY_MAX
+    )
+
     # --- Final Sample Results by Dilution (silent build) ---
     final_results = (
         unspiked_dilution_info[["base_sample", "sample_name", "dilution_factor", "protein_concentration"]]
@@ -519,6 +643,16 @@ if uploaded_file is not None:
     # DISPLAY — only the sections that appear in the PDF report
     # =========================================================================
 
+    if changed_criteria:
+        st.warning(
+            "Non-default acceptance criteria are active this session — see the "
+            "table below and the PDF report.\n\n"
+            + "\n".join(
+                f"- **{c['Criterion']}**: {c['Used']} (default: {c['Default']})"
+                for c in changed_criteria
+            )
+        )
+
     st.header("System Suitability")
     if system_suitability_pass:
         st.success(f"System Suitability: {status}")
@@ -567,6 +701,21 @@ if uploaded_file is not None:
     ))
     if loq_footnote_used:
         st.caption(LOQ_FOOTNOTE_TEXT)
+
+    if len(spike_suitability):
+        st.table(style_table(
+            spike_suitability,
+            caption=(
+                "Spike Recovery Suitability (informational — doesn't affect the results above) — "
+                f"Quantity %CV ≤ {SAMPLE_QTY_CV_MAX:g}%, Recovery "
+                f"{SAMPLE_SPIKE_RECOVERY_MIN:g}–{SAMPLE_SPIKE_RECOVERY_MAX:g}%"
+            ),
+            align="left", precision=None, precision_overrides={"Replicates Used": 0},
+            highlight_rows=(
+                (spike_suitability["CV Pass"] == "Pass") & (spike_suitability["Recovery Pass"] == "Pass")
+            ),
+            highlight_color="#D4EDDA",
+        ))
 
     # =========================================================================
     # Standard Curve graphs — Ct vs log10(Quantity), same regression line as the
@@ -847,6 +996,13 @@ if uploaded_file is not None:
     ], columns=["Field", "Value"])
     pdf_story.append(_pdf_table(run_info_df, col_widths=[2 * inch, 5 * inch]))
 
+    if changed_criteria:
+        pdf_story.append(Paragraph("Modified Acceptance Criteria (this session only)", _section_style))
+        pdf_story.append(_pdf_table(
+            format_df_for_display(pd.DataFrame(changed_criteria)),
+            col_widths=[4 * inch, 1.5 * inch, 1.5 * inch],
+        ))
+
     pdf_story.append(Paragraph("System Suitability", _section_style))
     pdf_story.append(Paragraph(
         f"System Suitability: {status}",
@@ -896,6 +1052,16 @@ if uploaded_file is not None:
     if loq_footnote_used:
         pdf_story.append(Paragraph(LOQ_FOOTNOTE_TEXT, _footnote_style))
 
+    if len(spike_suitability):
+        pdf_story.append(Paragraph("Spike Recovery Suitability (informational)", _section_style))
+        pdf_story.append(_pdf_table(
+            format_df_for_display(spike_suitability, precision=None, precision_overrides={"Replicates Used": 0}),
+            highlight_mask=(
+                (spike_suitability["CV Pass"] == "Pass") & (spike_suitability["Recovery Pass"] == "Pass")
+            ),
+            highlight_color=REPORT_PASS_COLOR,
+        ))
+
     _sig_table = Table([
         ["Submitter", "Reviewer"],
         [f"Name: {SUBMITTER_NAME or '—'}", f"Name: {REVIEWER_NAME or '—'}"],
@@ -927,9 +1093,26 @@ if uploaded_file is not None:
     pdf_buffer.seek(0)
 
     _safe_run_no = RUN_NUMBER.strip().replace(" ", "_") if RUN_NUMBER.strip() else "run"
-    st.download_button(
+    _downloaded = st.download_button(
         label="Download PDF Report",
         data=pdf_buffer,
         file_name=f"Sample_Analysis_Report_{_safe_run_no}.pdf",
         mime="application/pdf",
     )
+    # log_report_generated() (audit_log.py) is a no-op unless RESIDNA_AUDIT_LOG
+    # is set — see that module's docstring. st.download_button() returns True
+    # exactly once, on the rerun the click itself triggers, so this fires once
+    # per actual download rather than needing manual dedup against Streamlit's
+    # rerun-on-every-widget-change behavior.
+    if _downloaded:
+        log_report_generated(
+            uploaded_filename=uploaded_file.name,
+            file_bytes=uploaded_file.getvalue(),
+            assay_name=ASSAY_NAME,
+            run_number=RUN_NUMBER,
+            submitter_name=SUBMITTER_NAME,
+            reviewer_name=REVIEWER_NAME,
+            system_suitability_status=status,
+            sample_count=len(_base_sample_ids),
+            changed_criteria=changed_criteria,
+        )
