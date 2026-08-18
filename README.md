@@ -154,7 +154,7 @@ Reported in its own *Spike Recovery Suitability* table, placed below *Final Samp
 
 Both the notebook and the Streamlit app generate the same formatted PDF summarizing a run — Run Info, System Suitability, Sample Suitability, Final Sample Results, and a Signatures block. In the notebook, this is the final `## PDF Report` section, using the `#@param` fields in the Report Info cell; it writes to `Results/Sample_Analysis_Report_<run_no>.pdf` and requires `reportlab` (auto-installs if missing). In the app, it's built the same way but in-memory and offered as a browser download instead.
 
-- [ ] The logo is currently a placeholder box in both — swap in a real logo file.
+- [ ] Logo support is wired up in both (falls back to a placeholder box until a file is present) — drop the real file at `app/assets/logo.png`.
 
 ## Streamlit App (DEMO)
 

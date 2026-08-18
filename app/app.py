@@ -915,8 +915,9 @@ if uploaded_file is not None:
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_CENTER
     from reportlab.platypus import (
-        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether,
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, KeepTogether, Image,
     )
+    from reportlab.lib.utils import ImageReader
 
     REPORT_HEADER_COLOR = colors.HexColor("#2C3E50")
     REPORT_ALT_ROW_COLOR = colors.HexColor("#F7F9FA")
@@ -980,15 +981,32 @@ if uploaded_file is not None:
         table.setStyle(TableStyle(style))
         return table
 
-    _logo = Table([["[ COMPANY LOGO ]"]], colWidths=[2.5 * inch], rowHeights=[0.7 * inch])
-    _logo.hAlign = "CENTER"
-    _logo.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 1, REPORT_HEADER_COLOR),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TEXTCOLOR", (0, 0), (-1, -1), REPORT_HEADER_COLOR),
-        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
-    ]))
+    # app/assets/logo.png is optional — falls back to a placeholder box until a
+    # real logo file is dropped in (see README backlog). Scaled to fit within
+    # the placeholder's footprint while preserving its own aspect ratio, rather
+    # than stretching it to exactly 2.5x0.7in.
+    _LOGO_MAX_WIDTH = 2.5 * inch
+    _LOGO_MAX_HEIGHT = 0.7 * inch
+    _logo_path = Path(__file__).resolve().parent / "assets" / "logo.png"
+    if _logo_path.exists():
+        _logo_native_width, _logo_native_height = ImageReader(str(_logo_path)).getSize()
+        _logo_scale = min(_LOGO_MAX_WIDTH / _logo_native_width, _LOGO_MAX_HEIGHT / _logo_native_height)
+        _logo = Image(
+            str(_logo_path),
+            width=_logo_native_width * _logo_scale,
+            height=_logo_native_height * _logo_scale,
+        )
+        _logo.hAlign = "CENTER"
+    else:
+        _logo = Table([["[ COMPANY LOGO ]"]], colWidths=[_LOGO_MAX_WIDTH], rowHeights=[_LOGO_MAX_HEIGHT])
+        _logo.hAlign = "CENTER"
+        _logo.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 1, REPORT_HEADER_COLOR),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TEXTCOLOR", (0, 0), (-1, -1), REPORT_HEADER_COLOR),
+            ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ]))
 
     pdf_story = [
         _logo,

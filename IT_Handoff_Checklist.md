@@ -11,6 +11,7 @@ Zip these up, keeping the folder structure intact — `app/` and `Scripts/` must
 - [ ] `app/requirements.txt` — its dependencies, pinned to the exact versions tested
 - [ ] `Scripts/qpcr.py` — classification/suitability logic `app.py` imports from
 - [ ] `Scripts/plotting.py` — `style_table()` and formatting helpers `app.py` imports from
+- [ ] `app/assets/logo.png` *(optional)* — PDF report header logo; the report falls back to a plain placeholder box if this file isn't present
 - [ ] `.streamlit/config.toml` — theme/layout config; only takes effect when Streamlit is launched from the directory that contains it, so it needs to travel with the app and IT needs to launch from that same relative location
 - [ ] `IT_Deployment_Guide.md` — the deployment guide itself, so IT has the hosting-path decisions and hardening steps in hand
 - [ ] `IT_Setup_Guide_OptionA.md` — the from-scratch runbook IT actually executes from: real commands, service files, and config templates
