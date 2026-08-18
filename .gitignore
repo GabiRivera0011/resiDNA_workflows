@@ -221,5 +221,10 @@ __marimo__/
 # Logs/ directory itself is tracked via Logs/.gitkeep, its contents are not
 Logs/*.log
 
+# Real (scrubbed) company assay data — never committed, see Data Privacy in
+# README.md; the Data/ directory itself is tracked via Data/.gitkeep
+Data/*.xls
+Data/*.xlsx
+
 # Mac system files
 .DS_Store

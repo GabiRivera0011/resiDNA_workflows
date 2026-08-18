@@ -475,11 +475,18 @@ if uploaded_file is not None:
         resolved_replicates[["sample_name", "quantity_percent_cv", "dilution_adjusted"]],
         on="sample_name",
     )
+    # sample_cv["Pass"]/range_df["Pass"] are object-dtype and can hold True,
+    # False, or pd.NA (Undetermined) — `.map(lambda v: v is True)` is a strict
+    # "only literal True counts" check that treats False/NA/unmapped alike,
+    # avoiding both Kleene three-valued-logic surprises from ANDing NA
+    # directly and the pandas FutureWarning that `.fillna(False).astype(bool)`
+    # triggers on an object-dtype Series (relies on downcast-on-fillna
+    # behavior that's being deprecated).
     _cv_pass_by_sample = sample_cv.set_index("sample_name")["Pass"]
     _range_pass_by_sample = range_df.set_index("sample_name")["Pass"]
     eligible_mask = (
-        unspiked_dilutions["sample_name"].map(_cv_pass_by_sample).fillna(False).astype(bool)
-        & unspiked_dilutions["sample_name"].map(_range_pass_by_sample).fillna(False).astype(bool)
+        unspiked_dilutions["sample_name"].map(_cv_pass_by_sample).map(lambda v: v is True)
+        & unspiked_dilutions["sample_name"].map(_range_pass_by_sample).map(lambda v: v is True)
     )
     linearity_df = compute_dilutional_linearity(unspiked_dilutions, SAMPLE_LINEARITY_BIAS_MAX, eligible_mask)
     linearity_df = linearity_df.rename(columns={"sample_name": "Sample"})
@@ -1006,7 +1013,11 @@ if uploaded_file is not None:
     if changed_criteria:
         pdf_story.append(Paragraph("Modified Acceptance Criteria (this session only)", _section_style))
         pdf_story.append(_pdf_table(
-            format_df_for_display(pd.DataFrame(changed_criteria)),
+            # precision=None matches the on-screen warning above, which shows
+            # these same values via raw f-string interpolation — without it,
+            # format_df_for_display()'s 2-decimal default would pad every
+            # "%.1f"-entered value with a trailing zero inconsistently.
+            format_df_for_display(pd.DataFrame(changed_criteria), precision=None),
             col_widths=[4 * inch, 1.5 * inch, 1.5 * inch],
         ))
 
