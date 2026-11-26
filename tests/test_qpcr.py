@@ -9,9 +9,9 @@ import pytest
 
 from qpcr import (
     classify_sample, recovery_bounds, combined_suitability, compute_sigma_ct,
-    compute_loq_and_range, resolve_sample_replicates, compute_range_suitability,
-    compute_dilutional_linearity, aggregate_sample_results, compute_sample_status,
-    compute_spike_suitability,
+    compute_loq_and_range, resolve_sample_replicates, identify_cv_outlier,
+    compute_range_suitability, compute_dilutional_linearity, aggregate_sample_results,
+    compute_sample_status, compute_spike_suitability, compute_control_suitability,
 )
 
 
@@ -153,6 +153,37 @@ def test_resolve_sample_replicates_still_fails_with_best_pair():
     row = result.iloc[0]
     assert row["replicates_used"] == 3
     assert row["quantity_percent_cv"] == pytest.approx(150.0)
+
+
+# --- identify_cv_outlier (diagnostic only — never alters a reported value) --
+
+def test_identify_cv_outlier_none_when_cv_already_passes():
+    assert identify_cv_outlier(["A1", "A2", "A3"], [10.0, 10.5, 9.8], cv_max=25.0) is None
+
+
+def test_identify_cv_outlier_flags_the_driving_well():
+    # 50.0 is the clear outlier; excluding it minimizes the remaining pair's %CV
+    result = identify_cv_outlier(["A1", "A2", "A3"], [10.0, 10.2, 50.0], cv_max=25.0)
+    assert result == "A3"
+
+
+def test_identify_cv_outlier_flags_even_if_rescue_would_still_fail():
+    # No pair here has a %CV under cv_max — still flags the best single-well explanation
+    result = identify_cv_outlier(["A1", "A2", "A3"], [1.0, 10.0, 100.0], cv_max=25.0)
+    assert result is not None
+
+
+def test_identify_cv_outlier_none_for_wrong_group_size():
+    assert identify_cv_outlier(["A1", "A2"], [10.0, 50.0], cv_max=25.0) is None
+    assert identify_cv_outlier(["A1", "A2", "A3", "A4"], [10.0, 10.1, 9.9, 50.0], cv_max=25.0) is None
+
+
+def test_identify_cv_outlier_does_not_alter_inputs():
+    # Purely diagnostic — confirms there's no mutation of the caller's data
+    well_labels, values = ["A1", "A2", "A3"], [10.0, 10.2, 50.0]
+    identify_cv_outlier(well_labels, values, cv_max=25.0)
+    assert well_labels == ["A1", "A2", "A3"]
+    assert values == [10.0, 10.2, 50.0]
 
 
 # --- compute_range_suitability ----------------------------------------------
@@ -383,28 +414,58 @@ def test_compute_spike_suitability_empty_when_no_spiked_rows():
     ]
 
 
-def test_compute_spike_suitability_pass_case():
-    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=108.88, spike_input=3.0)
-    result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+def test_compute_spike_suitability_recovery_is_baseline_corrected():
+    # Real-world shape (sample_data experiment_001.xlsx, S1 D1 S): a spiked
+    # triplicate with a small but non-zero unspiked baseline. % Recovery must
+    # be computed as (Spiked - Unspiked) / Spike Input * 100, not read from
+    # any pass-through column — this function no longer accepts one.
+    spiked = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=np.nan, spike_input=3.0)
+    unspiked = _spiked_well_rows("S1 D1", [0.0004, 0.0004, 0.0003], percent_recovery=np.nan, spike_input=np.nan)
+    result = compute_spike_suitability(pd.concat([spiked, unspiked]), cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
     row = result.iloc[0]
+    spiked_mean = (3.2094 + 3.3757 + 3.2140) / 3
+    unspiked_mean = (0.0004 + 0.0004 + 0.0003) / 3
+    expected_recovery = (spiked_mean - unspiked_mean) / 3.0 * 100
     assert row["Sample"] == "S1 D1 S"
     assert row["Replicates Used"] == 3
     assert row["CV Pass"] == "Pass"
-    assert row["% Recovery"] == pytest.approx(108.88)
+    assert row["% Recovery"] == pytest.approx(expected_recovery)
     assert row["Recovery Pass"] == "Pass"
     assert row["Spike Input, ng/mL"] == pytest.approx(3.0)
 
 
 def test_compute_spike_suitability_recovery_out_of_bounds_fails():
-    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=150.0)
-    result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
-    assert result.iloc[0]["Recovery Pass"] == "Fail"
+    # High endogenous DNA, no baseline subtraction would wildly overstate
+    # this; with correction: (4.5 - 0.0) / 3.0 * 100 = 150% -> out of bounds.
+    spiked = _spiked_well_rows("S1 D1 S", [4.5, 4.5, 4.5], percent_recovery=np.nan, spike_input=3.0)
+    unspiked = _spiked_well_rows("S1 D1", [0.0, 0.0, 0.0], percent_recovery=np.nan, spike_input=np.nan)
+    result = compute_spike_suitability(pd.concat([spiked, unspiked]), cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+    row = result.iloc[0]
+    assert row["% Recovery"] == pytest.approx(150.0)
+    assert row["Recovery Pass"] == "Fail"
 
 
-def test_compute_spike_suitability_missing_recovery_is_na():
-    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=np.nan)
+def test_compute_spike_suitability_treats_missing_counterpart_as_zero_baseline():
+    # No unspiked counterpart present at all -> treated as a zero baseline,
+    # not an unknown one -> % Recovery = Spiked Mean / Spike Input * 100.
+    df = _spiked_well_rows("S1 D1 S", [3.2094, 3.3757, 3.2140], percent_recovery=np.nan, spike_input=3.0)
     result = compute_spike_suitability(df, cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
-    assert result.iloc[0]["Recovery Pass"] == "N/A"
+    spiked_mean = (3.2094 + 3.3757 + 3.2140) / 3
+    assert result.iloc[0]["% Recovery"] == pytest.approx(spiked_mean / 3.0 * 100)
+    assert result.iloc[0]["Recovery Pass"] == "Pass"
+
+
+def test_compute_spike_suitability_treats_undetermined_unspiked_as_zero_baseline():
+    # Real-world shape (experiment_001.xlsx, S1 D3 S / S1 D4 S): the unspiked
+    # counterpart's own Quantity is entirely NaN (Undetermined — no
+    # amplification at all). Treated as zero baseline, same as a missing
+    # counterpart row, not left as an unanswerable N/A.
+    spiked = _spiked_well_rows("S1 D1 S", [3.1292, 3.0355, 3.1202], percent_recovery=np.nan, spike_input=3.0)
+    unspiked = _spiked_well_rows("S1 D1", [np.nan, np.nan, np.nan], percent_recovery=np.nan, spike_input=np.nan)
+    result = compute_spike_suitability(pd.concat([spiked, unspiked]), cv_max=25.0, recovery_min=80.0, recovery_max=125.0)
+    spiked_mean = (3.1292 + 3.0355 + 3.1202) / 3
+    assert result.iloc[0]["% Recovery"] == pytest.approx(spiked_mean / 3.0 * 100)
+    assert result.iloc[0]["Recovery Pass"] == "Pass"
 
 
 def test_compute_spike_suitability_reuses_single_outlier_rescue():
@@ -444,3 +505,87 @@ def test_compute_spike_suitability_dilution_factor_comes_from_unspiked_counterpa
     assert result.loc["S1 D1 S", "Dilution Factor"] == 1.0
     assert result.loc["S1 D2 S", "Dilution Factor"] == 10.0
     assert result.loc["S1 D3 S", "Dilution Factor"] == 100.0
+
+
+# --- compute_control_suitability --------------------------------------------
+
+def _control_well_rows(sample_name, control_type, quantities, spike_input, dilution_factor=1.0):
+    mean = float(np.mean(quantities))
+    cv = float(np.std(quantities, ddof=1) / mean * 100) if mean else float("nan")
+    return pd.DataFrame({
+        "sample_name": [sample_name] * len(quantities),
+        "control_type": [control_type] * len(quantities),
+        "quantity": quantities,
+        "dilution_factor": [dilution_factor] * len(quantities),
+        "protein_concentration": [np.nan] * len(quantities),
+        "quantity_percent_cv": [cv] * len(quantities),
+        "quantity_mean": [mean] * len(quantities),
+        "dilution_adjusted": [mean * dilution_factor] * len(quantities),
+        "total_dna_per_ml": [mean * dilution_factor] * len(quantities),
+        "total_dna_per_protein_concentration": [np.nan] * len(quantities),
+        "spike_input": [spike_input] * len(quantities),
+    })
+
+
+def test_compute_control_suitability_passthrough_matches_instrument_formula():
+    # Real-world shape (sample_data_001.xls, HPC - 190): full triplicate
+    # already passes %CV, so Dilution Adjusted/Replicates Used are untouched
+    # pass-through, and % Recovery reproduces the instrument's own value.
+    df = _control_well_rows("HPC - 190", "HPC", [178.4397, 189.6, 189.6], spike_input=189.9937)
+    result = compute_control_suitability(df, cv_max=25.0, pc_min=80.0, pc_max=125.0, erc_min=50.0, erc_max=150.0)
+    row = result.iloc[0]
+    assert row["Replicates Used"] == 3
+    assert row["control_type"] == "HPC"
+    mean = (178.4397 + 189.6 + 189.6) / 3
+    assert row["% Recovery"] == pytest.approx(mean / 189.9937 * 100)
+
+
+def test_compute_control_suitability_rescues_two_of_three():
+    # One clear outlier; dropping it should rescue the CV, and % Recovery
+    # must reflect the rescued (2-well) Dilution Adjusted, not the original
+    # 3-well mean.
+    df = _control_well_rows("MPC - 10", "MPC", [10.0, 10.2, 50.0], spike_input=10.0)
+    result = compute_control_suitability(df, cv_max=25.0, pc_min=80.0, pc_max=125.0, erc_min=50.0, erc_max=150.0)
+    row = result.iloc[0]
+    assert row["Replicates Used"] == 2
+    assert row["CV Pass"] == True  # noqa: E712 — explicit bool, not truthy-check
+    rescued_mean = (10.0 + 10.2) / 2
+    assert row["% Recovery"] == pytest.approx(rescued_mean / 10.0 * 100)
+
+
+def test_compute_control_suitability_bare_name_still_resolves_via_spike_input():
+    # Real-world shape (2026-07-10 export): a control named just "ERC", no
+    # embedded nominal number — spike_input is the only reliable source.
+    df = _control_well_rows("ERC", "ERC", [1.8, 1.83, 1.85], spike_input=3.0)
+    result = compute_control_suitability(df, cv_max=25.0, pc_min=80.0, pc_max=125.0, erc_min=50.0, erc_max=150.0)
+    row = result.iloc[0]
+    mean = (1.8 + 1.83 + 1.85) / 3
+    assert row["% Recovery"] == pytest.approx(mean / 3.0 * 100)
+
+
+def test_compute_control_suitability_uses_type_specific_recovery_bounds():
+    # PC (HPC/MPC/LPC) and ERC use different recovery windows — same % Recovery,
+    # different Pass verdict depending on control_type.
+    pc = _control_well_rows("MPC - 10", "MPC", [6.0, 6.0, 6.0], spike_input=10.0)  # 60% recovery
+    erc = _control_well_rows("ERC - 30", "ERC", [18.0, 18.0, 18.0], spike_input=30.0)  # 60% recovery
+    result = compute_control_suitability(
+        pd.concat([pc, erc]), cv_max=25.0, pc_min=80.0, pc_max=125.0, erc_min=50.0, erc_max=150.0,
+    ).set_index("control_type")
+    assert result.loc["MPC", "Recovery Pass"] == False  # noqa: E712 — 60% fails PC's 80-125% window
+    assert result.loc["ERC", "Recovery Pass"] == True  # noqa: E712 — 60% passes ERC's 50-150% window
+
+
+def test_compute_control_suitability_empty_when_no_pc_controls():
+    ntc_only = pd.DataFrame({
+        "sample_name": ["NTC"], "control_type": ["NTC"], "quantity": [0.0],
+        "dilution_factor": [1.0], "protein_concentration": [np.nan],
+        "quantity_percent_cv": [np.nan], "quantity_mean": [0.0], "dilution_adjusted": [0.0],
+        "total_dna_per_ml": [0.0], "total_dna_per_protein_concentration": [np.nan],
+        "spike_input": [np.nan],
+    })
+    result = compute_control_suitability(ntc_only, cv_max=25.0, pc_min=80.0, pc_max=125.0, erc_min=50.0, erc_max=150.0)
+    assert result.empty
+    assert list(result.columns) == [
+        "control_type", "sample_name", "Quantity %CV", "Replicates Used",
+        "CV Pass", "% Recovery", "Recovery Pass",
+    ]

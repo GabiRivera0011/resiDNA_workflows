@@ -36,6 +36,7 @@ class FakeStreamlit(types.ModuleType):
         self._uploaded = None
         self.tables = []
         self.warnings = []
+        self.latex_calls = []
         # Real st.session_state is a MutableMapping-like object; a plain dict
         # supports every access pattern this app uses (.get(), .pop(), [key]).
         self.session_state = {}
@@ -55,8 +56,10 @@ class FakeStreamlit(types.ModuleType):
     def success(self, *a, **kw): pass
     def error(self, *a, **kw): pass
     def caption(self, *a, **kw): pass
+    def latex(self, *a, **kw): self.latex_calls.append(a[0] if a else kw.get("body"))
     def warning(self, *a, **kw): self.warnings.append(a)
     def columns(self, n, *a, **kw): return [nullcontext() for _ in range(n)]
+    def container(self, *a, **kw): return nullcontext()
     def plotly_chart(self, *a, **kw): pass
     def download_button(self, *a, **kw):
         label = a[0] if a else kw.get("label")

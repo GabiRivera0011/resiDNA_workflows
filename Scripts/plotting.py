@@ -94,7 +94,7 @@ def style_table(data, caption="", hide_index=True, precision=2, align="center",
         styler = styler.hide(axis="index")
 
     styler = styler.set_table_attributes(
-        'style="background-color:#FFFFFF; border-collapse:collapse;"'
+        'style="background-color:#FFFFFF; border-collapse:collapse; width:100%;"'
     )
     styler = styler.set_table_styles([
         {"selector": "caption", "props": [

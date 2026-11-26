@@ -97,16 +97,20 @@ Parser       QC Engine       Calculations
 | Check | Formula | Pass |
 |---|---|---|
 | R² | instrument-computed | ≥ 0.99 |
-| Ct %CV (triplicate) | `(Ct_SD / Ct_Mean) × 100` | ≤ 20% |
+| Ct %CV (triplicate) | `(Ct_SD / Ct_Mean) × 100` | ≤ 25% |
 | Back-calculation bias | `\|(Back-Calc Qty − Nominal Qty) / Nominal Qty\| × 100` | ≤ 25% |
 | Amplification efficiency | `(10^(−1/Slope) − 1) × 100` | 90%–110% |
+
+Deliberately **no** single-outlier-exclusion rescue here, unlike Samples and ERC/PC below: a rescued STD1/STD6 would ripple into the LOQ/STD Range derivation used by every sample's own Range check, while R²/Slope/y-Intercept/Efficiency remain the instrument's regression fit across all original wells, outlier included — rescuing one STD point's Ct/Back-Calc figures without refitting that curve would make the two inconsistent with each other. Re-exporting from the source instrument software is the correct fix for a genuinely bad STD well.
 
 **ERC & PC (Controls)**
 | Check | Formula | Pass |
 |---|---|---|
-| Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 20% |
-| PC %Recovery | `(Dilution-Adjusted Qty / Reference-Adjusted Qty) × 100` | 80%–125% |
+| Quantity %CV (triplicate) | `(Qty_SD / Qty_Mean) × 100` | ≤ 25% |
+| PC %Recovery | `Dilution-Adjusted Qty / Spike Input × 100` | 80%–125% |
 | ERC %Recovery | same formula | 50%–150% |
+
+Like Samples, a full-triplicate Quantity %CV failure triggers the same single-outlier-exclusion rescue (`resolve_sample_replicates()`, "Replicates Used: 2" instead of 3). Unlike Samples, % Recovery is then recomputed from the rescued Dilution-Adjusted quantity too — `Spike Input` here is the control's own nominal/reference concentration (e.g. 30 for `ERC - 30`, 189.9937 for `HPC - 190`), confirmed against real export data to reproduce the instrument's own % Recovery exactly, including for control names that don't literally embed the number (e.g. a bare `ERC`). Deliberately **not** applied to STD or NTC/NEC — see the STD Curve section above and `Scripts/qpcr.py`'s `compute_control_suitability()` docstring for why.
 
 **Sample LOQ / STD Range** — replaces the old ICH-sigma LOQ formula. From the standard curve's own back-calculated values, take STD1 (highest nominal quantity) and STD6 (lowest):
 | Value | Source | Used for |
@@ -115,7 +119,7 @@ Parser       QC Engine       Calculations
 | LOQ (Ct) | STD6 `Ct Mean` | NTC / NEC pass check |
 | STD Range | `[STD6 Back-Calc Mean, STD1 Back-Calc Mean]` | Sample STD Range check |
 
-**NTC / NEC** — both pass per well if Ct is `Undetermined` **or** `Ct ≥ LOQ_Ct` (STD6's own measured Ct Mean above).
+**NTC / NEC** — both pass per well if Ct is `Undetermined` **or** `Ct ≥ LOQ_Ct` (STD6's measured Ct Mean above).
 
 **Sample Suitability** — evaluated in this order, since each step feeds the next:
 
@@ -141,9 +145,11 @@ Each dilution is classified individually first, then a sample with multiple dilu
 | Check | Formula | Pass |
 |---|---|---|
 | Quantity %CV (triplicate) | same single-outlier-exclusion resolution as unspiked dilutions (`resolve_sample_replicates()`) | ≤ 25% |
-| % Recovery | instrument-computed: `100 × (Spiked Quantity Mean − Unspiked Quantity Mean) / Spike Input` | 80%–125% |
+| % Recovery | `100 × (Spiked Quantity Mean − Unspiked Quantity Mean) / Spike Input` — computed by this pipeline, not read from the instrument | 80%–125% |
 
 Reported in its own *Spike Recovery Suitability* table, placed below *Final Sample Results — Averaged per Sample*, green-highlighted where both checks pass. Deliberately informational only — it does not feed into or gate the corresponding unspiked dilution's own Suitability, Next Step, or whether it's averaged into the final result. Most runs have no spiked dilutions at all; spiking is an occasional follow-up test, not part of every dilution series, so this table (and section) is skipped entirely when there's nothing to report.
+
+**Note on % Recovery**: this is the one value in the Spike Recovery table that the pipeline genuinely calculates rather than reading forward from the instrument. Checking it against real export data showed the instrument's own `% Recovery` column does *not* subtract the unspiked baseline — it reported a confident, non-NaN recovery value even when the matching unspiked counterpart was Undetermined, with no quantity to subtract at all. Both the Spiked and Unspiked Quantity Means used here are the single-outlier-exclusion *resolved* means (`resolve_sample_replicates()`), consistent with the rest of this pipeline. If the unspiked counterpart has no resolvable quantity (Undetermined — no amplification at all) or no counterpart row is found, its baseline is treated as **zero** rather than leaving `% Recovery` undefined: "Undetermined" reasonably reads as "nothing detectable," and this also matches the instrument's own apparent behavior in this exact scenario.
 
 ## Criteria Verification
 
@@ -163,6 +169,10 @@ Both the notebook and the Streamlit app generate the same formatted PDF summariz
 `app.py` is the Phase II local web app: upload a QuantStudio file and get the same System Suitability, Sample Suitability, and Final Sample Results sections as the notebook, without touching code, plus:
 - **Sample ID / Sample Name** inputs — one row per Base Sample actually detected in the upload (simpler than the notebook's 8 fixed `#@param` slots, since the app can generate inputs from real data).
 - **Edit Acceptance Criteria** — a popup for adjusting any threshold in the Acceptance Criteria section above (e.g. Sample Quantity %CV Max, PC/ERC %Recovery bounds) without touching code. See below.
+- **How the Analysis Works** — a read-only companion popup explaining the math/logic behind every pass/fail check, grouped the same way as this README's own Acceptance Criteria tables. See below.
+- **Outlier flag** — a `(?)` next to the STD Curve Points table identifying any single well driving an out-of-range Ct %CV, for manual review (diagnostic only — STD has no automatic rescue; see below). ERC/PC no longer needs this flag, since a failing triplicate there is now rescued automatically instead.
+- **ERC/PC outlier rescue** — the same single-outlier-exclusion rescue Samples already get, with % Recovery recomputed from the rescued quantity. See below.
+- **System Suitability FAIL breakdown** — a FAIL names which category failed (`STD Curve`, `ERC/PC`, `NTC`, `NEC`) rather than just reporting FAIL with no detail, on-screen and in the PDF.
 - **Standard Curve graphs** (QC-controls overlay and per-sample overlay) and **Amplification Curves (ΔRn vs Cycle)** — all interactive Plotly charts.
 - A **Download PDF Report** button producing the same report described above.
 
@@ -176,6 +186,14 @@ Overrides are **session-only**: scoped to your browser tab, gone on reload. Tryi
 - An on-screen notice lists exactly which criteria changed, current default, and value used.
 - The PDF report gets a **Modified Acceptance Criteria** section with the same table, placed right after Run Info.
 - If the audit log is enabled (see below), the change is recorded there too — the only durable record that a report was generated with non-default thresholds, since the override itself is never saved anywhere.
+
+### How the Analysis Works
+
+A second button opens a read-only popup — one bordered section per category (Standard Curve, Controls, NTC/NEC, Sample LOQ/STD Range, Sample Suitability, Next Step, Spike Recovery), each a short table of Check/Formula/Pass rather than prose, mirroring this README's own Acceptance Criteria tables above. Unlike this README, though, the **Pass** column always reflects this session's *active* threshold — if Edit Acceptance Criteria has an override in effect, this popup shows that overridden value instead of the shipped default, so the two popups can never show conflicting numbers.
+
+### Outlier Flag
+
+Below the STD Curve Points table, a `(?)` reports whether any standard's Ct %CV is out of range and, if so, which single well (e.g. `STD 6 - 0.003: well F10`) best explains it — the same well-exclusion logic used elsewhere to rescue a triplicate, applied here purely as a diagnostic since STD deliberately has no automatic rescue (see the STD Curve section above). **It never recalculates anything**: Ct %CV and Back-Calc Mean stay exactly as the instrument reported them — the flag only identifies which well to re-check (e.g. in the source instrument software). ERC/PC no longer carries this flag — a failing triplicate there is now rescued automatically instead (see below).
 
 ## Data Privacy & Security (DEMO Streamlit App)
 
@@ -224,11 +242,13 @@ python -m venv .venv
 .venv\Scripts\pip install -r app\requirements.txt -r tests\requirements.txt
 .venv\Scripts\pytest tests -v
 ```
-Five suites, all under `tests/`:
+Seven suites, all under `tests/`:
 - `test_qpcr.py` — unit tests for every pure function in `Scripts/qpcr.py`, independent of any data file.
 - `test_app_golden.py` — runs the real `app/app.py` (headlessly, via a fake `streamlit` module in `tests/streamlit_stub.py`) against each file in `Data/` and checks `final_results`/`reportable_results` against known-good values, so a future change that silently shifts a Sample Suitability result gets caught automatically. `Data/*.xls`/`.xlsx` are real (scrubbed) company data and aren't committed to the repo (see Data Privacy above and git history), so these tests **skip**, not fail, wherever those files aren't present — a fresh clone or CI run will show them skipped, which is expected.
 - `test_audit_log.py` — unit tests for `app/audit_log.py`, including that it's a no-op unless `RESIDNA_AUDIT_LOG` is set and that raw analytical data never ends up in a log record.
 - `test_app_criteria.py` — runs `app/app.py` with `st.session_state` seeded to simulate Edit Acceptance Criteria overrides, checking the override is applied, reported on-screen, in the PDF, and in the audit log — and that leaving everything at its default reports nothing.
+- `test_methodology_dialog.py` — confirms the How the Analysis Works popup only renders when opened, that every category section is present, and that its displayed thresholds track an active session override rather than always showing the shipped default.
+- `test_system_suitability_message.py` — confirms a System Suitability FAIL names the specific category that failed (STD Curve, ERC/PC, NTC, NEC), and that a PASS reports no category detail.
 - `test_sample_name_normalization.py` — confirms the whitespace-normalization step (Sample Name/Task, applied right after parsing) collapses analyst typos correctly and doesn't corrupt real NaN, including a "before/after" pair proving it fixes a genuine spike/unspiked Dilution Factor lookup failure, not just a hypothetical one.
 
 ## Backlog — Recommended Cleanup

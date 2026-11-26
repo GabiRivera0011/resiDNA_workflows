@@ -128,8 +128,16 @@ def resolve_sample_replicates(samples_df, cv_max):
 
     Returns one row per sample_name: quantity_percent_cv, quantity_mean,
     dilution_adjusted, total_dna_per_ml, total_dna_per_protein_concentration,
-    replicates_used.
+    replicates_used. Correctly columned (just no rows) even when `samples_df`
+    has zero rows — `pd.DataFrame([])` on an empty row list otherwise returns
+    a DataFrame with no columns at all, which breaks any caller's column
+    lookup (e.g. `.set_index("sample_name")`) rather than finding zero rows.
     """
+    columns = [
+        "sample_name", "quantity_percent_cv", "quantity_mean", "dilution_adjusted",
+        "total_dna_per_ml", "total_dna_per_protein_concentration", "replicates_used",
+    ]
+
     def mean_sd_cv(values):
         s = pd.Series(values, dtype=float)
         mean = s.mean()
@@ -181,7 +189,37 @@ def resolve_sample_replicates(samples_df, cv_max):
             "replicates_used": replicates_used,
         })
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=columns)
+
+
+def identify_cv_outlier(well_labels, values, cv_max):
+    """Diagnostic only — never alters a reported value. For a 3-well group,
+    identifies which single well is the best explanation for an out-of-range
+    %CV: the one whose exclusion minimizes the remaining pair's %CV, using
+    the same selection method as resolve_sample_replicates(). Returns that
+    well's label (e.g. "A1"), or None if the full-triplicate %CV already
+    passes cv_max, or if there aren't exactly 3 wells.
+
+    Flags regardless of whether excluding that well would actually bring the
+    %CV under cv_max — this is for manual review (e.g. re-checking the well
+    in the source instrument software), not an automatic correction. STD and
+    Control suitability continue to use the full-triplicate instrument
+    figures unchanged; this function only surfaces which well to look at.
+    """
+    if len(values) != 3 or len(well_labels) != 3:
+        return None
+    s = pd.Series(values, dtype=float)
+    full_cv = (s.std() / s.mean() * 100) if s.mean() else float("nan")
+    if pd.isna(full_cv) or full_cv <= cv_max:
+        return None
+
+    best_idx, best_cv = None, float("inf")
+    for i in range(3):
+        remaining = pd.Series([v for j, v in enumerate(values) if j != i], dtype=float)
+        cv = (remaining.std() / remaining.mean() * 100) if remaining.mean() else float("inf")
+        if cv < best_cv:
+            best_cv, best_idx = cv, i
+    return well_labels[best_idx]
 
 
 def compute_range_suitability(unspiked_samples, resolved_replicates, std6_backcalc_mean, std1_backcalc_mean):
@@ -393,15 +431,31 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
 
     Quantity %CV precision reuses resolve_sample_replicates() (the same
     single-outlier-exclusion resolution used for unspiked dilutions) against
-    `cv_max`. % Recovery is read forward as the instrument's own precalculated
-    value (the `percent_recovery` column — computed by the instrument as
-    100 * (Spiked Quantity Mean - Unspiked Quantity Mean) / Spike Input) and
-    checked against [recovery_min, recovery_max], consistent with this
-    pipeline's rule that instrument-computed values survive as-is rather than
-    being recalculated.
+    `cv_max`. % Recovery is GENUINELY COMPUTED here — not read from the
+    instrument's own `percent_recovery` column. Checking real export data
+    (an unspiked counterpart with Undetermined/no-signal Quantity, paired
+    with its spike reporting a confident, non-NaN % Recovery; and a
+    high-endogenous-DNA sample where the instrument's own % Recovery was off
+    by orders of magnitude from a baseline-corrected value) showed the
+    instrument's own column does NOT subtract the unspiked baseline, despite
+    that being the documented/assumed formula. So this function computes it
+    directly instead:
+
+        % Recovery = (Spiked Quantity Mean − Unspiked Quantity Mean) / Spike Input × 100
+
+    Both means are the single-outlier-exclusion RESOLVED means (same
+    resolve_sample_replicates() used throughout this pipeline), not raw
+    instrument triplicate figures — so a rescued spiked or unspiked triplicate
+    is reflected here too. If the unspiked counterpart has no resolvable
+    Quantity (e.g. Undetermined — no amplification at all, often at a high
+    dilution factor) or no counterpart row is found at all, its baseline is
+    treated as zero rather than leaving % Recovery undefined: "Undetermined"
+    reasonably reads as "nothing detectable," not "data missing for an
+    unrelated reason," and this also matches the instrument's own apparent
+    behavior in this exact scenario.
 
     `samples_df` must have the same columns resolve_sample_replicates()
-    requires, plus percent_recovery and spike_input.
+    requires, plus spike_input (percent_recovery is no longer read).
 
     Returns one row per spiked dilution: Sample, Dilution Factor,
     Quantity %CV, Replicates Used, CV Pass, Total DNA (ng/mL),
@@ -418,11 +472,35 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
         return pd.DataFrame(columns=columns)
 
     resolved = resolve_sample_replicates(spiked_samples, cv_max)
-    recovery = spiked_samples.groupby("sample_name", as_index=False).agg(**{
-        "% Recovery": ("percent_recovery", "first"),
+    spike_input = spiked_samples.groupby("sample_name", as_index=False).agg(**{
         "Spike Input, ng/mL": ("spike_input", "first"),
     })
-    spike_suitability = resolved.merge(recovery, on="sample_name")
+    spike_suitability = resolved.merge(spike_input, on="sample_name")
+
+    # Baseline (unspiked counterpart) resolved Quantity Mean — same
+    # resolve_sample_replicates() call used elsewhere for unspiked dilutions,
+    # so a rescued unspiked triplicate's mean is used here too, not a raw
+    # recomputation that could silently disagree with the rest of the pipeline.
+    unspiked_samples = samples_df[~samples_df["sample_name"].str.endswith(" S")]
+    unspiked_quantity_means = (
+        resolve_sample_replicates(unspiked_samples, cv_max)
+        .set_index("sample_name")["quantity_mean"]
+    )
+    # A missing baseline (Undetermined — no amplification at all — or no
+    # unspiked counterpart row found) is treated as zero quantity, not an
+    # unknown value: "Undetermined" means nothing detectable, which is a
+    # reasonable reading of "approximately zero" rather than "data missing
+    # for an unrelated reason." This also matches the instrument's own
+    # apparent behavior in this exact scenario (see this function's note
+    # above on how % Recovery was found to actually be computed).
+    unspiked_counterpart_mean = (
+        spike_suitability["sample_name"].str.replace(r" S$", "", regex=True)
+        .map(unspiked_quantity_means).fillna(0)
+    )
+    spike_suitability["% Recovery"] = (
+        (spike_suitability["quantity_mean"] - unspiked_counterpart_mean)
+        / spike_suitability["Spike Input, ng/mL"] * 100
+    )
 
     # A spike well's own "Dilution Factor" in the raw export isn't meaningful
     # — the instrument reports 1.0 for every spike well regardless of which
@@ -430,7 +508,7 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
     # its unspiked counterpart's (e.g. "S1 D2" for "S1 D2 S"), since the
     # spike is added to that already-diluted sample, not re-diluted itself.
     unspiked_dilution_factors = (
-        samples_df[~samples_df["sample_name"].str.endswith(" S")]
+        unspiked_samples
         .drop_duplicates(subset="sample_name")
         .set_index("sample_name")["dilution_factor"]
     )
@@ -452,3 +530,64 @@ def compute_spike_suitability(samples_df, cv_max, recovery_min, recovery_max):
         "total_dna_per_ml": "Total DNA (ng/mL)",
     })
     return spike_suitability[columns].sort_values("Sample").reset_index(drop=True)
+
+
+def compute_control_suitability(controls_df, cv_max, pc_min, pc_max, erc_min, erc_max):
+    """Quantity %CV + % Recovery suitability for the ERC/PC controls (ERC,
+    HPC, MPC, LPC) — the same single-outlier-exclusion rescue
+    resolve_sample_replicates() already applies to Sample triplicates,
+    applied here too. Deliberately NOT applied to STD or to NTC/NEC: STD's
+    regression-fit dependency chain makes a rescue there high-risk (see
+    project history), and NTC/NEC has no triplicate-mean/%CV concept at all
+    (a per-well Ct pass/fail check instead).
+
+    % Recovery is recomputed from the rescued Dilution-Adjusted quantity —
+    `Dilution Adjusted / Spike Input × 100` — rather than read from the
+    instrument's own `percent_recovery` column, so a rescued triplicate's
+    changed Dilution-Adjusted value is reflected in its Recovery too (same
+    principle as compute_spike_suitability()'s fix for spiked samples).
+
+    `spike_input` here is the control's own nominal/reference concentration
+    (e.g. 30 for "ERC - 30", 189.9937 for "HPC - 190") — NOT a dosed spike in
+    the sample-recovery sense. Confirmed against real export data to be
+    populated for every control row and to reproduce the instrument's own
+    % Recovery exactly, including for control names that don't literally
+    embed a number (e.g. a bare "ERC") — those have no reliable nominal
+    anywhere else in the export, but do have a populated `spike_input`.
+
+    `controls_df` must have the same columns resolve_sample_replicates()
+    requires, plus control_type and spike_input.
+
+    Returns one row per (control_type, sample_name): control_type,
+    sample_name, Quantity %CV, Replicates Used, CV Pass, % Recovery,
+    Recovery Pass. Empty (but correctly columned) if none of ERC/HPC/MPC/LPC
+    are present.
+    """
+    columns = [
+        "control_type", "sample_name", "Quantity %CV", "Replicates Used",
+        "CV Pass", "% Recovery", "Recovery Pass",
+    ]
+    pc_controls = controls_df[controls_df["control_type"].isin(["ERC", "HPC", "MPC", "LPC"])].copy()
+    if pc_controls.empty:
+        return pd.DataFrame(columns=columns)
+
+    resolved = resolve_sample_replicates(pc_controls, cv_max)
+    control_types = pc_controls.drop_duplicates(subset="sample_name").set_index("sample_name")["control_type"]
+    spike_input = pc_controls.groupby("sample_name", as_index=False).agg(**{
+        "spike_input": ("spike_input", "first"),
+    })
+    suitability = resolved.merge(spike_input, on="sample_name")
+    suitability["control_type"] = suitability["sample_name"].map(control_types)
+    suitability["% Recovery"] = suitability["dilution_adjusted"] / suitability["spike_input"] * 100
+
+    suitability["CV Pass"] = suitability["quantity_percent_cv"] <= cv_max
+    suitability["Recovery Pass"] = suitability.apply(
+        lambda row: recovery_bounds(row["control_type"], pc_min, pc_max, erc_min, erc_max)[0]
+        <= row["% Recovery"]
+        <= recovery_bounds(row["control_type"], pc_min, pc_max, erc_min, erc_max)[1],
+        axis=1,
+    )
+    suitability = suitability.rename(columns={
+        "quantity_percent_cv": "Quantity %CV", "replicates_used": "Replicates Used",
+    })
+    return suitability[columns].sort_values(["control_type", "sample_name"]).reset_index(drop=True)
