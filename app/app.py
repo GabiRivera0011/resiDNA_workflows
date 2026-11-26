@@ -29,7 +29,15 @@ from audit_log import log_report_generated
 # Suitability, with 11 columns) fit without horizontal scrolling
 st.set_page_config(page_title="Residual DNA Sample Analysis Tool", layout="wide")
 
+# Bumped whenever this file (or Scripts/qpcr.py, Scripts/plotting.py) changes
+# in a way worth distinguishing — shown on-screen and in the PDF footer so a
+# specific running copy or a specific report can always be traced back to
+# the code that produced it, now that updates to this app circulate as
+# copied packages rather than a single shared deployment.
+APP_VERSION = "2026.11.27"
+
 st.title("Residual DNA Sample Analysis Tool")
+st.caption(f"Version {APP_VERSION}")
 
 
 FINAL_RESULTS_PRECISION = {
@@ -1245,6 +1253,8 @@ if uploaded_file is not None:
         Paragraph("Signatures", _section_style),
         _sig_table,
     ]))
+    pdf_story.append(Spacer(1, 0.15 * inch))
+    pdf_story.append(Paragraph(f"Generated with resiDNA Sample Analysis Tool, version {APP_VERSION}", _footnote_style))
 
     pdf_buffer = BytesIO()
     doc = SimpleDocTemplate(

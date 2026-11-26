@@ -30,6 +30,7 @@ resiDNA_workflows/
 ├── Run_resiDNA_App.bat           # Windows double-click launcher — no terminal needed, see below
 ├── Create_Desktop_Shortcut.ps1   # one-time script to add a desktop icon pointing at the launcher
 ├── README.md
+├── CHANGELOG.md                  # per-version history, matches the app's on-screen/PDF-footer APP_VERSION
 ├── IT_Deployment_Guide.md        # IT handoff: on-prem / Azure + SharePoint hosting paths (Option A decided)
 └── IT_Setup_Guide_OptionA.md     # from-scratch runbook IT executes: commands, service files, config templates
 ```
