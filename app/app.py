@@ -928,7 +928,7 @@ if uploaded_file is not None:
         for i, control_type in enumerate(["NTC", "NEC", "ERC", "HPC", "MPC", "LPC"])
     ]
     fig_controls = build_curve_figure("Standard Curve — QC Controls", control_groups, legend_title="Controls")
-    st.plotly_chart(fig_controls, use_container_width=False)
+    st.plotly_chart(fig_controls, width="content")
 
     _base_samples_for_plot = sorted(samples_df["base_sample"].unique())
     sample_groups = [
@@ -936,7 +936,7 @@ if uploaded_file is not None:
         for i, base in enumerate(_base_samples_for_plot)
     ]
     fig_samples = build_curve_figure("Standard Curve — Sample Results", sample_groups, legend_title="Samples")
-    st.plotly_chart(fig_samples, use_container_width=False)
+    st.plotly_chart(fig_samples, width="content")
 
     # =========================================================================
     # Amplification Curves — ΔRn vs Cycle, from the separate "Amplification Data"
@@ -1019,7 +1019,7 @@ if uploaded_file is not None:
             margin=dict(r=200, t=80, b=60),
             width=1000, height=550,
         )
-        st.plotly_chart(fig_amp, use_container_width=False)
+        st.plotly_chart(fig_amp, width="content")
 
     st.header("Signatures")
     sig_left, sig_right = st.columns(2)

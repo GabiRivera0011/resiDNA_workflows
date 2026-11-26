@@ -9,7 +9,10 @@ resiDNA_workflows/
 ├── app/
 │   ├── app.py                     # Phase II Streamlit app — local web UI, mirrors the notebook
 │   ├── audit_log.py               # opt-in audit log (RESIDNA_AUDIT_LOG) — app.py-only, see Data Privacy below
-│   └── requirements.txt           # dependencies for the Streamlit app
+│   ├── requirements.txt           # dependencies for the Streamlit app
+│   └── assets/
+│       ├── logo.png               # optional PDF report header logo (placeholder box if absent)
+│       └── resiDNA.ico            # desktop shortcut icon, see Create_Desktop_Shortcut.ps1 below
 ├── .streamlit/
 │   └── config.toml                # light theme + wide layout (must stay at repo root)
 │
@@ -24,6 +27,8 @@ resiDNA_workflows/
 ├── Figures/                      # reserved — future shared modules
 ├── Results/                      # generated PDF reports
 ├── Logs/                         # audit.log, only if RESIDNA_AUDIT_LOG is enabled — gitignored, not committed
+├── Run_resiDNA_App.bat           # Windows double-click launcher — no terminal needed, see below
+├── Create_Desktop_Shortcut.ps1   # one-time script to add a desktop icon pointing at the launcher
 ├── README.md
 ├── IT_Deployment_Guide.md        # IT handoff: on-prem / Azure + SharePoint hosting paths (Option A decided)
 └── IT_Setup_Guide_OptionA.md     # from-scratch runbook IT executes: commands, service files, config templates
@@ -234,6 +239,8 @@ python -m venv .venv
 Opens at `http://localhost:8501` — only reachable while that command is still running in a terminal; closing it (or restarting your computer) stops the app until you run it again.
 
 The audit log (see Data Privacy above) is off by default locally too. To try it: set `RESIDNA_AUDIT_LOG=1` before launching (`$env:RESIDNA_AUDIT_LOG="1"` in PowerShell), generate a report, then check `Logs/audit.log`.
+
+**Simpler, no terminal needed (Windows)**: double-click `Run_resiDNA_App.bat` at the repo root instead — it creates `.venv` and installs dependencies the first time, then just starts the app on every run after. Run `Create_Desktop_Shortcut.ps1` once (right-click → Run with PowerShell) to add a desktop icon that points at it.
 
 ## Running Tests
 
