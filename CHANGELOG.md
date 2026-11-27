@@ -19,6 +19,7 @@ entry below that produced it.
 - Fixed `st.plotly_chart(..., use_container_width=False)` across all chart calls — Streamlit deprecated this parameter (removed after 2025-12-31); replaced with `width="content"`.
 - Added `Run_resiDNA_App.bat` (double-click launcher, no terminal needed) and `Create_Desktop_Shortcut.ps1` (one-time Desktop icon setup), plus the icon itself (`app/assets/resiDNA.ico`). The launcher now also re-installs dependencies automatically whenever `app/requirements.txt` changes, not just on first run.
 - Added this version indicator (`APP_VERSION`), shown on-screen and in the PDF footer.
+- Added validation of the uploaded file's layout before parsing proceeds: confirms the Results sheet's header is where expected (row 23) and the regression/curve-stats block parses to the expected keys, failing with a clear "export template may have changed" message instead of a confusing crash or a misleading "missing analysis module" error.
 
 ## Earlier history
 

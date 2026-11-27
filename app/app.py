@@ -248,6 +248,31 @@ if uploaded_file is not None:
 
     df = pd.read_excel(uploaded_file, sheet_name="Results", header=22, engine=engine)
 
+    # This app assumes the Results sheet's header is on row 23 (header=22) and
+    # the regression block is at a fixed row/column range below (see the next
+    # read). Both are fragile to a QuantStudio export-template change, which
+    # would otherwise either misdirect the "missing column" error below (it
+    # would blame missing analysis modules for what's actually a shifted
+    # header) or crash later with a confusing raw error. These columns are
+    # present in every QuantStudio Results export regardless of which
+    # analysis modules were enabled — unlike Back Calculation/Protein
+    # Concentration, checked separately below, which genuinely can be absent
+    # — so their absence here specifically means the header isn't where this
+    # app expects it, not that the run is missing optional analysis.
+    _always_present_columns = {"Well", "Sample Name", "Task", "Ct"}
+    _found_columns = set(str(c).strip() for c in df.columns)
+    if not _always_present_columns.issubset(_found_columns):
+        st.error(
+            "This file's layout doesn't match what this app expects. The Results sheet's "
+            "header should be on row 23, including columns Well, Sample Name, Task, and Ct.\n\n"
+            f"**Found instead:** {', '.join(str(c) for c in df.columns[:8])}"
+            + (", ..." if len(df.columns) > 8 else "") + "\n\n"
+            "This usually means the QuantStudio export template has changed — re-exporting "
+            "the same way won't fix it. Contact whoever maintains this app to update it for "
+            "the new format."
+        )
+        st.stop()
+
     # The regression/curve-stats block lives in a separate fixed area of the same
     # sheet — re-read the file for it, seeking back to the start first since a
     # file-like object (unlike a path) remembers where the last read left off
@@ -258,10 +283,26 @@ if uploaded_file is not None:
     )
     regression_stats = []
     for item in regression_df.iloc[0]:
-        if pd.notna(item):
+        if pd.notna(item) and ":" in str(item):
             key, value = str(item).split(":", 1)
             regression_stats.append({"Metric": key.strip(), "Value": value.strip()})
     regression_table = pd.DataFrame(regression_stats)
+
+    # Same reasoning as the column check above: if the regression block has
+    # shifted, the text above either finds nothing to parse or parses
+    # unrelated text — catch it here with a clear message instead of a raw
+    # KeyError/ValueError once reg_stats["R2"] etc. are looked up further down.
+    _required_regression_keys = {"R2", "Slope", "y-Intercept", "Efficiency", "Std error"}
+    _found_regression_keys = set(regression_table["Metric"]) if "Metric" in regression_table.columns else set()
+    if not _required_regression_keys.issubset(_found_regression_keys):
+        st.error(
+            "Could not find the standard curve regression statistics (R², Slope, y-Intercept, "
+            "Efficiency, Std error) in the expected location of this file.\n\n"
+            "This usually means the QuantStudio export template has changed — re-exporting "
+            "the same way won't fix it. Contact whoever maintains this app to update it for "
+            "the new format."
+        )
+        st.stop()
 
     # --- Parse & clean (silent — same steps as the notebook) ---
     # "%" is normalized here (matching klib.clean_column_names' own "%" -> "_percent_"

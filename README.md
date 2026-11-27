@@ -250,13 +250,14 @@ python -m venv .venv
 .venv\Scripts\pip install -r app\requirements.txt -r tests\requirements.txt
 .venv\Scripts\pytest tests -v
 ```
-Seven suites, all under `tests/`:
+Eight suites, all under `tests/`:
 - `test_qpcr.py` — unit tests for every pure function in `Scripts/qpcr.py`, independent of any data file.
 - `test_app_golden.py` — runs the real `app/app.py` (headlessly, via a fake `streamlit` module in `tests/streamlit_stub.py`) against each file in `Data/` and checks `final_results`/`reportable_results` against known-good values, so a future change that silently shifts a Sample Suitability result gets caught automatically. `Data/*.xls`/`.xlsx` are real (scrubbed) company data and aren't committed to the repo (see Data Privacy above and git history), so these tests **skip**, not fail, wherever those files aren't present — a fresh clone or CI run will show them skipped, which is expected.
 - `test_audit_log.py` — unit tests for `app/audit_log.py`, including that it's a no-op unless `RESIDNA_AUDIT_LOG` is set and that raw analytical data never ends up in a log record.
 - `test_app_criteria.py` — runs `app/app.py` with `st.session_state` seeded to simulate Edit Acceptance Criteria overrides, checking the override is applied, reported on-screen, in the PDF, and in the audit log — and that leaving everything at its default reports nothing.
 - `test_methodology_dialog.py` — confirms the How the Analysis Works popup only renders when opened, that every category section is present, and that its displayed thresholds track an active session override rather than always showing the shipped default.
 - `test_system_suitability_message.py` — confirms a System Suitability FAIL names the specific category that failed (STD Curve, ERC/PC, NTC, NEC), and that a PASS reports no category detail.
+- `test_export_layout_validation.py` — confirms a shifted Results-sheet header or a corrupted regression block fails with a clear "export template may have changed" error, and that the real, unmodified files still pass through untouched.
 - `test_sample_name_normalization.py` — confirms the whitespace-normalization step (Sample Name/Task, applied right after parsing) collapses analyst typos correctly and doesn't corrupt real NaN, including a "before/after" pair proving it fixes a genuine spike/unspiked Dilution Factor lookup failure, not just a hypothetical one.
 
 ## Backlog — Recommended Cleanup
