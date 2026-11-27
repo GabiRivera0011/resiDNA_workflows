@@ -673,21 +673,21 @@ if uploaded_file is not None:
         .sort_values(["Base Sample", "Sample"])
         .reset_index(drop=True)
     )
-    final_results["Quantity %CV Suitability"] = final_results["Quantity %CV"].apply(
+    final_results["Quantity %CV Pass"] = final_results["Quantity %CV"].apply(
         lambda cv: "N/A" if pd.isna(cv) else ("Pass" if cv <= SAMPLE_QTY_CV_MAX else "Fail")
     )
     final_results = final_results.merge(
         linearity_df[["Sample", "% Bias", "Pass"]].rename(columns={"% Bias": "Linearity %Bias"}),
         on="Sample", how="left",
     )
-    final_results["Linearity Suitability"] = (
+    final_results["Linearity Pass"] = (
         final_results["Pass"].map({True: "Pass", False: "Fail"}).fillna("N/A")
     )
     final_results = final_results.drop(columns="Pass")
 
     # Bring in each dilution's STD Range verdict. Pass/Fail/N/A wording here for
-    # consistency with its sibling suitability columns.
-    range_suitability_col = f"STD Range Suitability ({std6_backcalc_mean}–{std1_backcalc_mean})"
+    # consistency with its sibling per-check Pass columns.
+    range_suitability_col = f"STD Range Pass ({std6_backcalc_mean}–{std1_backcalc_mean})"
     final_results = final_results.merge(
         range_df[["sample_name", "Range Status"]].rename(columns={"sample_name": "Sample"}),
         on="Sample",
@@ -703,7 +703,7 @@ if uploaded_file is not None:
     # anything below the LOQ, is excluded rather than merely flagged).
     final_results["Suitability"] = final_results.apply(
         lambda row: combined_suitability([
-            row["Quantity %CV Suitability"], row[range_suitability_col], row["Linearity Suitability"],
+            row["Quantity %CV Pass"], row[range_suitability_col], row["Linearity Pass"],
         ]),
         axis=1,
     )
@@ -717,8 +717,8 @@ if uploaded_file is not None:
     # already carries the same information for a human reader.
     final_results = final_results.rename(columns={"Base Sample": "Sample #"})[[
         "Sample #", "Sample", "Dilution Factor", "Quantity Mean",
-        "Quantity %CV", "Replicates Used", "Quantity %CV Suitability", range_suitability_col,
-        "Linearity %Bias", "Linearity Suitability",
+        "Quantity %CV", "Replicates Used", "Quantity %CV Pass", range_suitability_col,
+        "Linearity %Bias", "Linearity Pass",
         "Total DNA (ng/mL)", "Protein Concentration (mg/mL)", "DNA per Protein (ng/mg)",
         "Suitability",
     ]]

@@ -376,8 +376,8 @@ def _classify_dilution_status(row, range_suitability_col, std6_backcalc_mean, st
 
     only_range_fails = (
         row[range_suitability_col] == "Fail"
-        and row["Quantity %CV Suitability"] == "Pass"
-        and row["Linearity Suitability"] in ("Pass", "N/A")
+        and row["Quantity %CV Pass"] == "Pass"
+        and row["Linearity Pass"] in ("Pass", "N/A")
     )
     quantity_mean = row["Quantity Mean"]
     if only_range_fails and pd.notna(quantity_mean):
@@ -400,9 +400,9 @@ def compute_sample_status(final_results, range_suitability_col, std6_backcalc_me
     already applies when deciding "Sample Passed".
 
     `final_results` must have one row per dilution, with columns: Sample #,
-    Suitability, Quantity %CV Suitability, Linearity Suitability, Quantity Mean,
-    and `range_suitability_col` (the STD Range Suitability column — its exact
-    name embeds the STD6/STD1 bounds, so it's passed in rather than hardcoded).
+    Suitability, Quantity %CV Pass, Linearity Pass, Quantity Mean, and
+    `range_suitability_col` (the STD Range Pass column — its exact name
+    embeds the STD6/STD1 bounds, so it's passed in rather than hardcoded).
 
     Returns a Series indexed by Sample #.
     """

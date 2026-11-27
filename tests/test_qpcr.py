@@ -291,7 +291,7 @@ def test_aggregate_sample_results_fallback_averages_all_when_none_pass():
 
 # --- compute_sample_status ----------------------------------------------------
 
-RANGE_COL = "STD Range Suitability (0.003–300.0)"
+RANGE_COL = "STD Range Pass (0.003–300.0)"
 STD6, STD1 = 0.003, 300.0
 
 
@@ -302,8 +302,8 @@ def _dilution_row(
     return {
         "Sample #": sample_no,
         "Suitability": suitability,
-        "Quantity %CV Suitability": qty_cv,
-        "Linearity Suitability": linearity,
+        "Quantity %CV Pass": qty_cv,
+        "Linearity Pass": linearity,
         RANGE_COL: range_suit,
         "Quantity Mean": quantity_mean,
     }
