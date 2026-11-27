@@ -2,7 +2,7 @@
 
 This checklist governs delivery of an **update** to a resiDNA installation already running (set up per [IT_Setup_Guide_OptionA.md](IT_Setup_Guide_OptionA.md)). It is a smaller, separate process from a first-time handoff. If the installation does not yet exist, use [IT_Handoff_Checklist.md](IT_Handoff_Checklist.md) instead.
 
-Company policy prohibits network syncing of this folder; updates travel by copying files onto a USB drive. Because no CI pipeline catches a regression before it reaches the server, Step 1 serves that function and is required for every update, regardless of how minor the change appears.
+Because no CI pipeline catches a regression before it reaches the server, Step 1 serves that function and is required for every update, regardless of how minor the change appears.
 
 ## 1. Verify before copying
 
