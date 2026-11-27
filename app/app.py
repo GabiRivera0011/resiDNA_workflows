@@ -37,7 +37,7 @@ st.set_page_config(page_title="Residual DNA Sample Analysis Tool", layout="wide"
 APP_VERSION = "2026.11.27"
 
 st.title("Residual DNA Sample Analysis Tool")
-st.caption(f"Version {APP_VERSION}")
+st.caption(f"Version {APP_VERSION} | Built by Gabi Rivera, AMD Scientist III")
 
 
 FINAL_RESULTS_PRECISION = {
