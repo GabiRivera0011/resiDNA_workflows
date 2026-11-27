@@ -29,10 +29,13 @@ resiDNA_workflows/
 ├── Logs/                         # audit.log, only if RESIDNA_AUDIT_LOG is enabled — gitignored, not committed
 ├── Run_resiDNA_App.bat           # Windows double-click launcher — no terminal needed, see below
 ├── Create_Desktop_Shortcut.ps1   # one-time script to add a desktop icon pointing at the launcher
+├── Verify_Before_Handoff.bat     # required pre-packaging test check, see IT_Update_Checklist.md
 ├── README.md
 ├── CHANGELOG.md                  # per-version history, matches the app's on-screen/PDF-footer APP_VERSION
 ├── IT_Deployment_Guide.md        # IT handoff: on-prem / Azure + SharePoint hosting paths (Option A decided)
-└── IT_Setup_Guide_OptionA.md     # from-scratch runbook IT executes: commands, service files, config templates
+├── IT_Setup_Guide_OptionA.md     # from-scratch runbook IT executes: commands, service files, config templates
+├── IT_Handoff_Checklist.md       # what to package for the first-time handoff, before IT's initial install
+└── IT_Update_Checklist.md        # what to package for an update to an install IT already has running
 ```
 
 ## Application Architecture (In Progress)

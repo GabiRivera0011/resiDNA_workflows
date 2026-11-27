@@ -2,13 +2,6 @@
 
 A practical companion to [IT_Deployment_Guide.md](IT_Deployment_Guide.md): exactly what to package up and send to IT, what to leave out, and who owns each remaining gap before this goes live on company infrastructure. For the actual step-by-step execution once IT has this package, see [IT_Setup_Guide_OptionA.md](IT_Setup_Guide_OptionA.md) — Option A (on-prem/local server) is the decided path.
 
-## 0. Before you package anything — run the test suite
-
-**Required, every time, before copying files to the handoff USB drive.** Company policy doesn't allow this folder to sync itself over the network, so there's no CI catching a regression before it reaches IT — this is the one check standing in for that.
-
-- [ ] Double-click `Verify_Before_Handoff.bat` and confirm it reports **"ALL TESTS PASSED."** If it reports a failure, stop — do not hand off this state. Fix the issue, run it again, and only proceed once it passes.
-- [ ] If it reports some tests **skipped**, that's expected — the real company data files (`Data/*.xls`/`.xlsx`) aren't part of this folder, so the tests needing them can't run here. A skip is not a pass; it just means that particular check didn't execute in this environment. It's normal and not a reason to stop.
-
 ## 1. Code to hand over
 
 Zip these up, keeping the folder structure intact — `app/` and `Scripts/` must stay siblings inside the zip (not flattened), since `app.py` locates `Scripts/` via a path relative to its own location (`sys.path.insert(0, ... / "Scripts")`), and imports `qpcr.py` / `plotting.py` directly. Missing either one crashes the app on the very first import, before the page loads.
@@ -25,7 +18,6 @@ Zip these up, keeping the folder structure intact — `app/` and `Scripts/` must
 - [ ] `tests/` *(optional)* — lets IT verify the app behaves correctly once it's running in their environment (`pytest tests -v`)
 - [ ] `Run_resiDNA_App.bat` and `Create_Desktop_Shortcut.ps1` *(Windows, local/interim use)* — a double-click launcher (creates the `.venv` and installs dependencies on first run, starts the app on every run after) and a one-time script that adds a desktop icon pointing at it. For running the app directly from this handed-off copy, before (or instead of) IT's own hosted deployment below.
 - [ ] `app/assets/resiDNA.ico` — the icon the desktop shortcut above uses.
-- [ ] `Verify_Before_Handoff.bat` — the pre-packaging test check from section 0. Keep it in the handoff folder so whoever prepares the *next* update has it too.
 
 ## 2. Decisions made before handoff
 
