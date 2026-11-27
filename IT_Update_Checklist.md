@@ -7,7 +7,7 @@ Because no CI pipeline catches a regression before it reaches the server, Step 1
 ## 1. Verify before copying
 
 - [ ] Run `Verify_Before_Handoff.bat` and confirm it reports **"ALL TESTS PASSED."** A reported failure means the update must not proceed; resolve the issue, rerun the script, and continue only once it passes.
-- [ ] A report of **skipped** tests is expected: the real company data files (`Data/*.xls`/`.xlsx`) are not part of this folder, so tests depending on them cannot run here. A skip is distinct from a pass and does not indicate a problem.
+- [ ] A report of **skipped** tests is expected: the data files (`Data/*.xls`/`.xlsx`) are not part of this folder, so tests depending on them cannot run here. A skip is distinct from a pass and does not indicate a problem.
 
 ## 2. Review what changed
 
@@ -17,7 +17,7 @@ Because no CI pipeline catches a regression before it reaches the server, Step 1
 
 The `app/` and `Scripts/` folders should be replaced in their entirety rather than copied file by file, which avoids guessing at individual changes and prevents a mismatched mix of old and new code.
 
-- [ ] `app/` (entire folder) — excluding `app/assets/logo.png` if the server holds the real company logo and this copy is still the placeholder; confirm before overwriting.
+- [ ] `app/` (entire folder) — excluding `app/assets/logo.png` if the server holds the logo and this copy is still the placeholder; confirm before overwriting.
 - [ ] `Scripts/` (entire folder)
 - [ ] `tests/` (entire folder), if IT intends to run its own post-update verification (see Step 5)
 - [ ] Any new item identified in `CHANGELOG.md` that is not yet part of the running installation (for example, the first introduction of `Run_resiDNA_App.bat`, `Create_Desktop_Shortcut.ps1`, or `app/assets/resiDNA.ico`)
