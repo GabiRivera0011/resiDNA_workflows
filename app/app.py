@@ -564,7 +564,7 @@ if uploaded_file is not None:
     }])
 
     std_points_wide = std_suitability.rename(columns={"sample_name": "Item"})[[
-        "Item", "Ct %CV", "Ct %CV Pass", "Back-Calc %Bias", "Back-Calc Pass"
+        "Item", "Ct Mean", "Ct %CV", "Ct %CV Pass", "Back-Calc Mean", "Back-Calc %Bias", "Back-Calc Pass"
     ]].copy()
     std_points_wide["Ct %CV Pass"] = std_points_wide["Ct %CV Pass"].map({True: "Pass", False: "Fail"})
     std_points_wide["Back-Calc Pass"] = std_points_wide["Back-Calc Pass"].map({True: "Pass", False: "Fail"})
@@ -573,7 +573,9 @@ if uploaded_file is not None:
     erc_pc_wide["Item"] = erc_pc_wide["sample_name"] + " (" + erc_pc_wide["control_type"] + ")"
     erc_pc_wide["CV Pass"] = erc_pc_wide["CV Pass"].map({True: "Pass", False: "Fail"})
     erc_pc_wide["Recovery Pass"] = erc_pc_wide["Recovery Pass"].map({True: "Pass", False: "Fail"})
-    erc_pc_wide = erc_pc_wide[["Item", "Quantity %CV", "Replicates Used", "CV Pass", "% Recovery", "Recovery Pass"]]
+    erc_pc_wide = erc_pc_wide[
+        ["Item", "Quantity Mean", "Quantity %CV", "Replicates Used", "CV Pass", "% Recovery", "Recovery Pass"]
+    ]
 
     ntc_nec_rows = []
     for _, row in negative_control_summary.iterrows():
@@ -714,8 +716,8 @@ if uploaded_file is not None:
     # the display/PDF copies right before rendering, since "Sample" (e.g. "S1 D1")
     # already carries the same information for a human reader.
     final_results = final_results.rename(columns={"Base Sample": "Sample #"})[[
-        "Sample #", "Sample", "Dilution Factor", "Quantity Mean", range_suitability_col,
-        "Quantity %CV", "Replicates Used", "Quantity %CV Suitability",
+        "Sample #", "Sample", "Dilution Factor", "Quantity Mean",
+        "Quantity %CV", "Replicates Used", "Quantity %CV Suitability", range_suitability_col,
         "Linearity %Bias", "Linearity Suitability",
         "Total DNA (ng/mL)", "Protein Concentration (mg/mL)", "DNA per Protein (ng/mg)",
         "Suitability",

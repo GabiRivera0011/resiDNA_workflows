@@ -586,6 +586,6 @@ def test_compute_control_suitability_empty_when_no_pc_controls():
     result = compute_control_suitability(ntc_only, cv_max=25.0, pc_min=80.0, pc_max=125.0, erc_min=50.0, erc_max=150.0)
     assert result.empty
     assert list(result.columns) == [
-        "control_type", "sample_name", "Quantity %CV", "Replicates Used",
+        "control_type", "sample_name", "Quantity Mean", "Quantity %CV", "Replicates Used",
         "CV Pass", "% Recovery", "Recovery Pass",
     ]

@@ -559,12 +559,12 @@ def compute_control_suitability(controls_df, cv_max, pc_min, pc_max, erc_min, er
     requires, plus control_type and spike_input.
 
     Returns one row per (control_type, sample_name): control_type,
-    sample_name, Quantity %CV, Replicates Used, CV Pass, % Recovery,
-    Recovery Pass. Empty (but correctly columned) if none of ERC/HPC/MPC/LPC
-    are present.
+    sample_name, Quantity Mean, Quantity %CV, Replicates Used, CV Pass,
+    % Recovery, Recovery Pass. Empty (but correctly columned) if none of
+    ERC/HPC/MPC/LPC are present.
     """
     columns = [
-        "control_type", "sample_name", "Quantity %CV", "Replicates Used",
+        "control_type", "sample_name", "Quantity Mean", "Quantity %CV", "Replicates Used",
         "CV Pass", "% Recovery", "Recovery Pass",
     ]
     pc_controls = controls_df[controls_df["control_type"].isin(["ERC", "HPC", "MPC", "LPC"])].copy()
@@ -588,6 +588,7 @@ def compute_control_suitability(controls_df, cv_max, pc_min, pc_max, erc_min, er
         axis=1,
     )
     suitability = suitability.rename(columns={
+        "quantity_mean": "Quantity Mean",
         "quantity_percent_cv": "Quantity %CV", "replicates_used": "Replicates Used",
     })
     return suitability[columns].sort_values(["control_type", "sample_name"]).reset_index(drop=True)
