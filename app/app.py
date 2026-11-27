@@ -844,6 +844,7 @@ if uploaded_file is not None:
     st.table(style_table(curve_fit_wide, caption="STD Curve Fit", align="left"))
     st.table(style_table(
         std_points_wide, caption="", align="left",
+        precision_overrides={"Back-Calc Mean": 4},
         highlight_rows=(std_points_wide["Ct %CV Pass"] == "Fail") | (std_points_wide["Back-Calc Pass"] == "Fail"),
         highlight_color="#F8D7DA",
     ))
@@ -1227,7 +1228,7 @@ if uploaded_file is not None:
     ))
     pdf_story.append(Spacer(1, 0.1 * inch))
     pdf_story.append(_pdf_table(
-        format_df_for_display(std_points_wide),
+        format_df_for_display(std_points_wide, precision_overrides={"Back-Calc Mean": 4}),
         highlight_mask=(std_points_wide["Ct %CV Pass"] == "Fail") | (std_points_wide["Back-Calc Pass"] == "Fail"),
     ))
     if len(erc_pc_wide):
