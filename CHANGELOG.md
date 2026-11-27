@@ -20,6 +20,10 @@ entry below that produced it.
 - Added `Run_resiDNA_App.bat` (double-click launcher, no terminal needed) and `Create_Desktop_Shortcut.ps1` (one-time Desktop icon setup), plus the icon itself (`app/assets/resiDNA.ico`). The launcher now also re-installs dependencies automatically whenever `app/requirements.txt` changes, not just on first run.
 - Added this version indicator (`APP_VERSION`), shown on-screen and in the PDF footer.
 - Added validation of the uploaded file's layout before parsing proceeds: confirms the Results sheet's header is where expected (row 23) and the regression/curve-stats block parses to the expected keys, failing with a clear "export template may have changed" message instead of a confusing crash or a misleading "missing analysis module" error.
+- Added Ct Mean and Back-Calc Mean (now shown to 4 decimal places) to the STD Curve Points table, and Quantity Mean to the ERC/PC Controls table; moved the STD Range Pass column next to Quantity %CV Pass.
+- Renamed the per-check "...Suitability" columns (Quantity %CV, STD Range, Linearity) to "...Pass", for consistency with the rest of the app's pass/fail columns.
+- Added an on-screen author credit beside the version caption.
+- Split handoff documentation into [IT_Handoff_Checklist.md](IT_Handoff_Checklist.md) (first-time setup) and [IT_Update_Checklist.md](IT_Update_Checklist.md) (updating an existing install), and added `Verify_Before_Handoff.bat` as the required pre-packaging test gate for both.
 
 ## Earlier history
 
